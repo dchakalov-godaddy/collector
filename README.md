@@ -2,11 +2,10 @@
 
 Tool that gathers data regarding openstack hypervisors and instances
 
-## Help
+## Help menu 
 
-Help menu
-### `collector --help`
 ```bash
+collector --help
 usage: collector.py [-e ENV] [-v --verbose] [-s --sort] [-b]
 
 Collects data via OpenStack API
@@ -25,7 +24,7 @@ optional arguments:
 
 ```
 
-# OpenStack Client Configuration file
+## OpenStack Client Configuration file
 
 OpenStack client setup (if you have not already have one)
 
@@ -66,7 +65,7 @@ This file requires your auth above ^ has `admin` privilege and assumes you have
 that access in the `openstack` project.
 
 
-# Basic command example
+## Basic command example
 
 ```bash
 collector -e ams_private hypervisors
