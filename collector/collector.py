@@ -7,12 +7,12 @@ import prettytable
 import datetime
 import argparse
 from datetime import datetime, timezone
-import subprocess
 from functools import reduce
+
+from usage import vm_disk_usage
 
 # Getting the configuration data from clouds.yaml file
 config = openstack.config.loader.OpenStackConfig()
-
 
 class Table:
     def __init__(self, headers, data_list):
@@ -43,7 +43,7 @@ class Collector:
 
 class HypervisorCollector(Collector):
 
-    def get_resources(self, env):
+    def get_resources(self, env, usage):
         cli = self._get_client(env)
         hypervisors = cli.list_hypervisors()
 
@@ -57,40 +57,68 @@ class HypervisorCollector(Collector):
                 [hypervisor.name, hypervisor.state, hypervisor.host_ip, 
                 f"{round(hypervisor.local_disk_size/1024, 2)} TB", f"{hypervisor.local_disk_used} GB", 
                 f"{hypervisor.local_disk_free} GB", hypervisor.running_vms])
-        
-        print(f"Number of HVs on {env}: {len(hypervisors)}")
-        print(f"Number of HVs with 0 running VMs: {len([h for h in hypervisors if h.running_vms == 0])}")
-        print(f"Total disk used: {round(reduce(lambda a, b: a + b, [h.local_disk_used for h in hypervisors ])/1024, 2)} TB")
-        print(f"Total free space: {round(reduce(lambda a, b: a + b, [h.local_disk_free for h in hypervisors ])/1024, 2)} TB")
-        table = Table(headers, hypervisors_data)
-        table.print_table()
+
+        self.print_general_info(env, hypervisors)
+        if usage:
+            # Getting all servers
+            servers = cli.list_servers(all_projects=True, bare=True, filters={'limit': 1000})
+            # Getting all flavors
+            flavors = cli.list_flavors()
+            for hv in hypervisors_data:
+                print('------------------------------------')
+                print(f"Hypervisor: {hv[0]}")
+                vm_usage_headers = ['Name', 'State', 'UUID', 'Allocated disk', 'Disk Usage']
+                # Getting list of VMs UUIDs and real disk usage from the usage ansible module
+                vm_data = vm_disk_usage(hv[0])
+                data = []
+                for key in vm_data:
+                    # Getting the specific server data
+                    server = [s for s in servers if s.id == key][0]
+                    # Getting the server flavor
+                    flavor = [f for f in flavors if f.id == server.flavor.id][0]
+                    data.append([server.name, server.status, key, f"{flavor.disk}G", vm_data[key]])               
+                vm_table = Table(vm_usage_headers, data)
+                vm_table.print_table()
+        else: 
+            table = Table(headers, hypervisors_data)
+            table.print_table()
+
+    
+    @classmethod
+    def print_general_info(self, env, hypervisors):
+            print(f"Number of HVs on {env}: {len(hypervisors)}")
+            print(f"Number of HVs with 0 running VMs: {len([h for h in hypervisors if h.running_vms == 0])}")
+            print(f"Total disk used: {round(reduce(lambda a, b: a + b, [h.local_disk_used for h in hypervisors ])/1024, 2)} TB")
+            print(f"Total free space: {round(reduce(lambda a, b: a + b, [h.local_disk_free for h in hypervisors ])/1024, 2)} TB")
 
 
 class ServerCollector(Collector):
     def get_resources(self, env, sorter,  hours, disk):
         cli = self._get_client(env)
-        servers = cli.list_servers(all_projects=True,)
-
+        # Getting all servers
+        servers = cli.list_servers(all_projects=True, bare=True, filters={'limit': 1000})
+        # Getting all flavors
+        flavors = cli.list_flavors()
         # Setting the result table headings
         headers = ["Instance name", "State", "Created at",
-                   'Flavor', "Disk", "RAM", "VCPUs"]
-
+                   'Flavor', "Allocated Disk", "RAM", "VCPUs"]
         # Filling the table rows only with the needed columns
         servers_data = []
+
         for server in servers:
             id = server.flavor.id
-            srv_flavor = cli.get_flavor_by_id(id)
+            # Getting the server flavor
+            srv_flavor = [f for f in flavors if f.id == id][0]
             servers_data.append([server.name, server.status, server.created_at, srv_flavor.name,
                                 srv_flavor.disk, srv_flavor.ram, srv_flavor.vcpus])
 
         # Filtering instance by disk size
         servers_data = [x for x in servers_data if int(x[4]) >= int(disk)]
-
         self.print_general_info(servers_data, env, hours)
         servers_data = self.switch(sorter, servers_data)
         table = Table(headers, servers_data)
         table.print_table()
-
+    
     @classmethod
     def print_general_info(self, servers_data, env, hours):
         print('------------------------------------')
@@ -168,7 +196,7 @@ def main():
     parser = argparse.ArgumentParser(
         prog='Openstack Collector',
         description='Collects data via OpenStack API',
-        usage="collector.py [-e ENV] [-v --verbose] [-s --sort] [-b]",
+        usage="collector.py [-e ENV] [-v --verbose] [-s --sort] [-b] [-t] [-d --disk]",
     )
 
     parser.add_argument('collector', choices=['servers', 'hypervisors'],
@@ -194,6 +222,7 @@ def main():
                         dest='verbose')
     parser.add_argument(
         '-t', help='Show number of VMs created in the last specified hours', action='store', dest='hours')
+    parser.add_argument('-d', '--disk',help= 'List each VM real disk usage on every HV', action='store_true', dest='usage')
 
     args = parser.parse_args()
 
@@ -204,7 +233,7 @@ def main():
 
     # Defying dictionary with the possible collectors and their filters
     collectors = {'servers': {'type': ServerCollector(), 'filters': [
-        args.env, args.sorter or 'size', args.hours or 24, args.bigger or 0]}, 'hypervisors': {'type': HypervisorCollector(), 'filters': [args.env]}}
+        args.env, args.sorter or 'size', args.hours or 24, args.bigger or 0]}, 'hypervisors': {'type': HypervisorCollector(), 'filters': [args.env, args.usage or False]}}
 
     # Creating a new collector depending on the provided type
     collector = collectors[args.collector]['type']
