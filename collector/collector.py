@@ -65,19 +65,26 @@ class HypervisorCollector(Collector):
             # Getting all flavors
             flavors = cli.list_flavors()
             for hv in hypervisors_data:
+                vm_data = vm_disk_usage(hv[0])
+                # If there are no VMs on this HV we skip this HV
+                if len(vm_data) == 0:
+                    continue
                 print('------------------------------------')
                 print(f"Hypervisor: {hv[0]}")
                 vm_usage_headers = ['Name', 'State', 'UUID', 'Allocated disk', 'Disk Usage', 'Use %']
                 # Getting list of VMs UUIDs and real disk usage from the usage ansible module
-                vm_data = vm_disk_usage(hv[0])
                 data = []
                 for key in vm_data:
                     # Getting the specific server data
-                    server = [s for s in servers if s.id == key][0]
+                    if any(srv.id == key for srv in servers):
+                        server = next(s for s in servers if s.id == key)
+                    else:
+                        continue
                     # Getting the server flavor
-                    flavor = [f for f in flavors if f.id == server.flavor.id][0]
-                    real_usage = int(vm_data[key].replace('G', ""))
-                    data.append([server.name, server.status, key, f"{flavor.disk}G", vm_data[key], round((real_usage / flavor.disk)* 100, 1)])     
+                    flavor = [f for f in flavors if f.id == server.flavor.id or f.name == server.flavor.id][0]
+                    real_usage = vm_data[key]
+                    real_usage = format_disk_usage(real_usage)
+                    data.append([server.name, server.status, key, f"{flavor.disk}G", vm_data[key], round((float(real_usage) / flavor.disk)* 100, 1)])     
                 data = sorted(data, key=lambda x: int(x[5]), reverse=True)    
                 vm_table = Table(vm_usage_headers, data)
                 vm_table.print_table()
@@ -114,15 +121,9 @@ class ServerCollector(Collector):
         for server in servers:
             flavor_id = server.flavor.id
             # Getting the server flavor
-            srv_flavor = [f for f in flavors if f.id == flavor_id][0]
+            srv_flavor = [f for f in flavors if f.id == flavor_id or f.name == flavor_id][0] 
             real_usage = vm_disk_usage_list.get(server.id)
-            if real_usage is not None:
-                if "M" in real_usage:
-                    real_usage = round(int(real_usage.replace('M', ""))/ 1024, 2)
-                elif 'G' in real_usage:
-                    real_usage = int(float(real_usage.replace('G', "")))
-            else:
-                real_usage = 0
+            real_usage = format_disk_usage(real_usage)
             usage_percentage = round((real_usage / srv_flavor.disk) * 100, 2) 
             servers_data.append([server.name, server.status, server.created_at, srv_flavor.name,
                                 srv_flavor.disk, real_usage, usage_percentage,  srv_flavor.ram, srv_flavor.vcpus])
@@ -131,7 +132,6 @@ class ServerCollector(Collector):
         servers_data = [x for x in servers_data if int(x[4]) >= int(disk)]
         self.print_general_info(servers_data, env, hours)
         servers_data = self.switch(sorter, servers_data)
-        servers_data = [[f"{x[4]}G" for x in xs] for xs in servers_data]
         table = Table(headers, servers_data)
         table.print_table()
     
@@ -211,6 +211,19 @@ class ServerCollector(Collector):
                 servers_data, key=lambda x: int(x[8]), reverse=True)
         return servers_data
 
+# Function to remove the usage output into integer (used for sorting purposes)
+def format_disk_usage(real_usage):
+    if real_usage is not None:
+        if "M" in real_usage:
+            real_usage = round(int(real_usage.replace('M', ""))/ 1024, 2)
+        elif 'G' in real_usage:
+            real_usage = int(float(real_usage.replace('G', "")))
+        else:
+            real_usage = 0
+    else:
+        real_usage = 0
+    return real_usage
+       
 
 def main():
     parser = argparse.ArgumentParser(

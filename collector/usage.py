@@ -3,7 +3,6 @@
 from __future__ import (absolute_import, division, print_function)
 __metaclass__ = type
 
-import json
 import shutil
 
 import ansible.constants as C
@@ -93,8 +92,9 @@ def vm_disk_usage(hvs):
         hosts=host_list,
         gather_facts='no',
         tasks=[
-            # dict(action=dict(module='shell', args='ls'), register='shell_out'),
-            dict(action=dict(module='shell', args="for i in $(/bin/virsh list --all --uuid); do echo $i ; du -sh /var/lib/nova/instances/$i | awk '{print $1}'; done"), register='disk_out')
+            dict(action=dict(module='shell', args="du -sh /var/lib/docker/volumes/nova_compute/_data/instances/* /var/lib/nova/instances/* 2> /dev/null | grep -vE 'base|locks|nodes|snapshots' | awk '{print $2, $1}' | awk -F 'instances/' '{print$2}'"), register='disk_out'),
+            # dict(action=dict(module='shell', args="for i in $(/bin/virsh list --all --uuid); do echo $i ; du -sh /var/lib/nova/instances/$i | awk '{print $1}'; done"), register='disk_out'),
+            # dict(action=dict(module='shell', args="du -sh /var/lib/docker/volumes/nova_compute/_data/instances/* | grep -vE 'base|locks|nodes|snapshots' | awk '{print $2, $1}'"), register='disk_out')
         ]
     )
 
@@ -117,5 +117,14 @@ def vm_disk_usage(hvs):
     for host, result in results_callback.host_ok.items():
         disk_usage_list += (result._result['stdout_lines'])
         # Returning a dictionary of VM UUID and disk usage key value pair from list result
+    if any('/var/lib/docker/volumes/nova_compute/_data/instances/' in str for str in disk_usage_list ):   
+        disk_usage_list = [item.replace("/var/lib/docker/volumes/nova_compute/_data/instances/", "") for item in disk_usage_list]
+    else:
+        disk_usage_list = [item.replace("/var/lib/nova/instances/", "") for item in disk_usage_list]
+    disk_usage_list = [str.split(' ') for str in disk_usage_list ]
+    new_list = []
+    for lst in disk_usage_list:
+        new_list += lst
+    disk_usage_list = new_list
     return (dict(zip(disk_usage_list[::2], disk_usage_list[1::2])))
 
