@@ -1,6 +1,6 @@
 # Openstack Collector
 
-Tool that gathers data regarding openstack hypervisors and instances
+Tool that gathers data regarding openstack hypervisors and instances. Uses the Ansible Python Api to collect real disk usage data for each VM
 
 ## Help menu 
 
@@ -68,27 +68,29 @@ that access in the `openstack` project.
 ## Basic command example
 
 ```bash
-collector -e ams_private hypervisors
+❯ collector -e ams_private hypervisors
 Number of HVs on ams_private: 135
 Number of HVs with 0 running VMs: 40
-Total disk used: 75.1 TB
-Total free space: 284585 GB
-+-------------------------------+-------+--------------+-----------+------------+------------+-------------+
-|              Name             | State |   Host IP    | Disk size | Used space | Free space | Running VMs |
-+-------------------------------+-------+--------------+-----------+------------+------------+-------------+
-| n3plcldhv001-02.prod.ams3.gdg |   up  |  10.30.12.2  |  1.33 TB  |   860 GB   |   499 GB   |      4      |
-| n3plcldhv001-01.prod.ams3.gdg |   up  |  10.30.12.1  |  1.33 TB  |   940 GB   |   419 GB   |      4      |
-| n3plcldhv001-03.prod.ams3.gdg |   up  |  10.30.12.3  |  1.33 TB  |   900 GB   |   459 GB   |      7      |
-| n3plcldhv001-04.prod.ams3.gdg |   up  |  10.30.12.4  |  1.33 TB  |   160 GB   |  1199 GB   |      1      |
-| n3plcldhv001-05.prod.ams3.gdg |   up  |  10.30.12.5  |  1.33 TB  |   140 GB   |  1219 GB   |      1      |
-| n3plcldhv001-06.prod.ams3.gdg |   up  |  10.30.12.6  |  1.33 TB  |   700 GB   |   659 GB   |      3      |
-| n3plcldhv002-22.prod.ams3.gdg |   up  | 10.36.27.214 |  2.67 TB  |   660 GB   |  2079 GB   |      6      |
+Total disk used: 74.38 TB
+Total free space: 278.64 TB
++-------------------------------+-------+--------------+-----------+------------+------------+-------+-------------+
+|              Name             | State |   Host IP    | Disk size | Used space | Free space | Use % | Running VMs |
++-------------------------------+-------+--------------+-----------+------------+------------+-------+-------------+
+| n3plcldhv001-01.prod.ams3.gdg |   up  |  10.30.12.1  |  1.33 TB  |   940 GB   |   419 GB   |  69.2 |      4      |
+| n3plcldhv001-03.prod.ams3.gdg |   up  |  10.30.12.3  |  1.33 TB  |   900 GB   |   459 GB   |  66.2 |      7      |
+| n3plcldhv001-02.prod.ams3.gdg |   up  |  10.30.12.2  |  1.33 TB  |   860 GB   |   499 GB   |  63.3 |      4      |
+| n3plcldhv002-20.prod.ams3.gdg |   up  | 10.36.27.212 |  2.67 TB  |  1440 GB   |  1299 GB   |  52.6 |      9      |
+| n3plcldhv001-06.prod.ams3.gdg |   up  |  10.30.12.6  |  1.33 TB  |   700 GB   |   659 GB   |  51.5 |      3      |
+| n3plcldhv002-21.prod.ams3.gdg |   up  | 10.36.27.213 |  2.67 TB  |  1380 GB   |  1359 GB   |  50.4 |      6      |
+| n3plcldhv003-21.prod.ams3.gdg |   up  | 10.36.27.237 |  2.67 TB  |  1360 GB   |  1379 GB   |  49.7 |      9      |
+| n3plcldhv002-24.prod.ams3.gdg |   up  | 10.36.27.216 |  2.67 TB  |  1340 GB   |  1399 GB   |  48.9 |      5      |
+| n3plcldhv003-14.prod.ams3.gdg |   up  | 10.36.27.230 |  2.67 TB  |  1320 GB   |  1419 GB   |  48.2 |      6      |
 ```
 
 ## Collecting servers data
 
 ```bash
-collector -e ams_private servers
+❯ collector -e ams_private servers
 ------------------------------------
 Collecting data from ams_private
 Number of VMs: 423
@@ -102,63 +104,44 @@ Number of VMs per disk size:
  - 40 GB: 82 VMs
  - 20 GB: 5 VMs
 ------------------------------------
-+-----------------+---------+----------------------+-------------+----------------+-------+-------+
-|  Instance name  |  State  |      Created at      |    Flavor   | Allocated Disk |  RAM  | VCPUs |
-+-----------------+---------+----------------------+-------------+----------------+-------+-------+
-|  n3plvps4app47  | SHUTOFF | 2022-12-07T22:27:11Z |  m1.medium  |       60       |  4096 |   4   |
-|  n3plvps4app44  | SHUTOFF | 2022-12-07T22:27:11Z |  m1.medium  |       60       |  4096 |   4   |
-|  n3plvps4app42  | SHUTOFF | 2022-12-07T22:27:10Z |  m1.medium  |       60       |  4096 |   4   |
-|  n3plvps4app41  | SHUTOFF | 2022-12-07T22:27:10Z |  m1.medium  |       60       |  4096 |   4   |
-|  n3plvps4app46  | SHUTOFF | 2022-12-07T22:27:10Z |  m1.medium  |       60       |  4096 |   4   |
-|  n3plvps4app43  | SHUTOFF | 2022-12-07T22:27:10Z |  m1.medium  |       60       |  4096 |   4   |
-|  n3plvps4app45  | SHUTOFF | 2022-12-07T22:27:10Z |  m1.medium  |       60       |  4096 |   4   |
-|  n3plvps4app39  | SHUTOFF | 2022-12-07T21:00:15Z |  m1.medium  |       60       |  4096 |   4   |
-|  n3plvps4app22  |  ACTIVE | 2022-12-07T20:49:51Z |  m1.medium  |       60       |  4096 |   4   |
-|  n3plvps4app18  |  ACTIVE | 2022-12-07T20:48:05Z |  m1.medium  |       60       |  4096 |   4   |
-|  n3plvps4app21  |  ACTIVE | 2022-12-07T20:48:05Z |  m1.medium  |       60       |  4096 |   4   |
-|  n3plvps4app14  |  ACTIVE | 2022-12-07T20:46:13Z |  m1.medium  |       60       |  4096 |   4   |
-|  n3plvps4app16  |  ACTIVE | 2022-12-07T20:46:12Z |  m1.medium  |       60       |  4096 |   4   |
++-----------------+---------+----------------------+-------------+----------------+-----------+-------+-------+-------+
+|  Instance name  |  State  |      Created at      |    Flavor   | Allocated Disk | Used disk | Use % |  RAM  | VCPUs |
++-----------------+---------+----------------------+-------------+----------------+-----------+-------+-------+-------+
+|  qs-w-prodn-03  |  ACTIVE | 2021-09-13T22:32:21Z |  m1.xlarge  |      240       |    240    | 100.0 | 16384 |   8   |
+|  qs-w-prodn-07  |  ACTIVE | 2021-09-13T22:32:13Z |  m1.xlarge  |      240       |    240    | 100.0 | 16384 |   8   |
+|  qs-w-prodn-06  |  ACTIVE | 2021-09-13T22:32:03Z |  m1.xlarge  |      240       |    240    | 100.0 | 16384 |   8   |
+|  qs-w-prodn-02  |  ACTIVE | 2021-09-13T22:31:56Z |  m1.xlarge  |      240       |    240    | 100.0 | 16384 |   8   |
+|  qs-w-prodn-08  |  ACTIVE | 2021-09-13T22:31:56Z |  m1.xlarge  |      240       |    240    | 100.0 | 16384 |   8   |
+|  n3possyncutil1 |  ACTIVE | 2020-05-08T19:28:42Z |  m1.xlarge  |      240       |    240    | 100.0 | 16384 |   8   |
+|   n3pldnsyum02  |  ACTIVE | 2019-11-11T23:15:59Z |  m1.xlarge  |      240       |    240    | 100.0 | 16384 |   8   |
 ```
 
 ## Collecting each VM real disk usage
 
 ```bash
-collector -e ams_private hypervisors -d
+❯ collector -e ams_private hypervisors -d
 Number of HVs on ams_private: 135
 Number of HVs with 0 running VMs: 40
 Total disk used: 74.43 TB
 Total free space: 278.58 TB
 ------------------------------------
 Hypervisor: n3plcldhv001-02.prod.ams3.gdg
-+----------------+--------+--------------------------------------+----------------+------------+
-|      Name      | State  |                 UUID                 | Allocated disk | Disk Usage |
-+----------------+--------+--------------------------------------+----------------+------------+
-| n3plipmimsg007 | ACTIVE | 3f3cd35d-6dfe-465f-90c3-aa520b0acd57 |      360G      |    53G     |
-|  n3plpncps01   | ACTIVE | f71dd510-6a76-4e52-a8f8-ec141748c316 |      240G      |    28G     |
-| n3pliciendp001 | ACTIVE | 156d14c4-e9a1-4111-8d16-fba3ac9dca17 |      120G      |    32G     |
-|   he-jumper    | ACTIVE | 2404599c-c981-4e61-b5b0-235efda300ce |      40G       |    17G     |
-+----------------+--------+--------------------------------------+----------------+------------+
++----------------+--------+--------------------------------------+----------------+------------+-------+
+|      Name      | State  |                 UUID                 | Allocated disk | Disk Usage | Use % |
++----------------+--------+--------------------------------------+----------------+------------+-------+
+|   he-jumper    | ACTIVE | 2404599c-c981-4e61-b5b0-235efda300ce |      40G       |    17G     |  42.5 |
+| n3pliciendp001 | ACTIVE | 156d14c4-e9a1-4111-8d16-fba3ac9dca17 |      120G      |    32G     |  26.7 |
+| n3plipmimsg007 | ACTIVE | 3f3cd35d-6dfe-465f-90c3-aa520b0acd57 |      360G      |    54G     |  15.0 |
+|  n3plpncps01   | ACTIVE | f71dd510-6a76-4e52-a8f8-ec141748c316 |      240G      |    28G     |  11.7 |
++----------------+--------+--------------------------------------+----------------+------------+-------+
 ------------------------------------
 Hypervisor: n3plcldhv001-01.prod.ams3.gdg
-+----------------+--------+--------------------------------------+----------------+------------+
-|      Name      | State  |                 UUID                 | Allocated disk | Disk Usage |
-+----------------+--------+--------------------------------------+----------------+------------+
-| n3possyncutil1 | ACTIVE | 4c1d4c48-05b0-4052-a4dd-90536e8b8260 |      240G      |    240G    |
-|  n3plproxy001  | ACTIVE | df7723f3-6311-4199-9d3e-c5d1e10d246a |      120G      |    28G     |
-|   dbox-win1    | ACTIVE | a8f95b60-825e-4a4f-a924-2d3e82bdf8f1 |      240G      |    236G    |
-|   n3pliiq001   | ACTIVE | 4e221b4a-5ba3-4584-9c91-1e2ff9ea84b1 |      240G      |    27G     |
-+----------------+--------+--------------------------------------+----------------+------------+
-------------------------------------
-Hypervisor: n3plcldhv001-03.prod.ams3.gdg
-+----------------+---------+--------------------------------------+----------------+------------+
-|      Name      |  State  |                 UUID                 | Allocated disk | Disk Usage |
-+----------------+---------+--------------------------------------+----------------+------------+
-|  n3ansible02   |  ACTIVE | 2bea6025-f10f-4557-a132-f5033ec4b662 |      240G      |    74G     |
-|  n3phdtest01   |  ACTIVE | 57559315-0239-4eeb-987b-f0486314473b |      40G       |    14G     |
-|  n3phdtest02   |  ACTIVE | 1ddd387f-b86a-46f7-a4f8-9c78253ed578 |      40G       |    13G     |
-| n3plztncldsg01 |  ACTIVE | c61be2c7-4801-490c-a082-0d126a48d228 |      240G      |    76G     |
-|  n3plshell001  |  ACTIVE | 3b004f74-df11-4bd3-8e6e-5e1f04efe43b |      120G      |    75G     |
-| n3pancmbgp0303 |  ACTIVE | a4b2ef23-80da-4caa-adba-7cc418f2bba5 |      60G       |    21G     |
-| n3plncmbgp0303 | SHUTOFF | 53760c4e-9b05-4e39-8f31-c57c29928092 |      60G       |    19G     |
-+----------------+---------+--------------------------------------+----------------+------------+
++----------------+--------+--------------------------------------+----------------+------------+-------+
+|      Name      | State  |                 UUID                 | Allocated disk | Disk Usage | Use % |
++----------------+--------+--------------------------------------+----------------+------------+-------+
+| n3possyncutil1 | ACTIVE | 4c1d4c48-05b0-4052-a4dd-90536e8b8260 |      240G      |    240G    | 100.0 |
+|   dbox-win1    | ACTIVE | a8f95b60-825e-4a4f-a924-2d3e82bdf8f1 |      240G      |    236G    |  98.3 |
+|  n3plproxy001  | ACTIVE | df7723f3-6311-4199-9d3e-c5d1e10d246a |      120G      |    28G     |  23.3 |
+|   n3pliiq001   | ACTIVE | 4e221b4a-5ba3-4584-9c91-1e2ff9ea84b1 |      240G      |    28G     |  11.7 |
++----------------+--------+--------------------------------------+----------------+------------+-------+
 ```
