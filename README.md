@@ -5,8 +5,8 @@ Tool that gathers data regarding openstack hypervisors and instances. Uses the A
 ## Help menu 
 
 ```bash
-collector --help
-usage: collector.py [-e ENV] [-v --verbose] [-s --sort] [-b]
+collector -h
+usage: collector.py [-e ENV] [-v --verbose] [-s --sort] [-b] [-t] [-d --disk]
 
 Collects data via OpenStack API
 
@@ -17,7 +17,7 @@ positional arguments:
 optional arguments:
   -h, --help            show this help message and exit
   -e ENV, --env ENV     Cloud environment for which the results will be shown
-  -s {name,status,date,flavor,disk,ram,vcpus}, --sort {name,status,date,flavor,disk,ram,vcpus}
+  -s {name,status,date,flavor,disk,ram,vcpus,usage}, --sort {name,status,date,flavor,disk,ram,vcpus,usage}
   -b BIGGER             Filter instances by flavor size bigger than the provided value in GB
   -v, --verbose         Showing verbose output for the query
   -t HOURS              Show number of VMs created in the last specified hours
