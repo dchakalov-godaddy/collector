@@ -64,27 +64,30 @@ class HypervisorCollector(Collector):
             servers = cli.list_servers(all_projects=True, bare=True, filters={'limit': 1000})
             # Getting all flavors
             flavors = cli.list_flavors()
-            for hv in hypervisors_data:
-                vm_data = vm_disk_usage(hv[0])
+            # Creating a list of Hypervisor hostnames
+            hypervisors_list = [ h.name for h in hypervisors]
+            # Getting a dictionary containing all VMs and their real disk usage
+            vm_data = vm_disk_usage(hypervisors_list)
+            for hv in hypervisors_list:
+                # Creating list of VMs on the current Hypervisor
+                current_hv_vm_list = [srv for srv in servers if srv.hypervisor_hostname == hv]
                 # If there are no VMs on this HV we skip this HV
-                if len(vm_data) == 0:
+                if len(current_hv_vm_list) == 0:
                     continue
                 print('------------------------------------')
-                print(f"Hypervisor: {hv[0]}")
+                print(f"Hypervisor: {hv}")
                 vm_usage_headers = ['Name', 'State', 'UUID', 'Allocated disk', 'Disk Usage', 'Use %']
                 # Getting list of VMs UUIDs and real disk usage from the usage ansible module
                 data = []
-                for key in vm_data:
-                    # Getting the specific server data
-                    if any(srv.id == key for srv in servers):
-                        server = next(s for s in servers if s.id == key)
-                    else:
-                        continue
+                for server in current_hv_vm_list:
+
                     # Getting the server flavor
                     flavor = [f for f in flavors if f.id == server.flavor.id or f.name == server.flavor.id][0]
-                    real_usage = vm_data[key]
+                    if server.id not in vm_data:
+                        continue
+                    real_usage = vm_data[server.id]
                     real_usage = format_disk_usage(real_usage)
-                    data.append([server.name, server.status, key, f"{flavor.disk}G", vm_data[key], round((float(real_usage) / flavor.disk)* 100, 1)])     
+                    data.append([server.name, server.status, server.id, f"{flavor.disk}G", vm_data[server.id], round((float(real_usage) / flavor.disk)* 100, 1)])     
                 data = sorted(data, key=lambda x: int(x[5]), reverse=True)    
                 vm_table = Table(vm_usage_headers, data)
                 vm_table.print_table()
@@ -116,7 +119,9 @@ class ServerCollector(Collector):
         # Filling the table rows only with the needed columns
         servers_data = []
         hypervisors = cli.list_hypervisors()
+        # Creating a list of Hypervisor hostnames
         hypervisors_list = [h.name for h in hypervisors]
+        # Getting a dictionary containing all VMs and their real disk usage
         vm_disk_usage_list = vm_disk_usage(hypervisors_list)
         for server in servers:
             flavor_id = server.flavor.id
