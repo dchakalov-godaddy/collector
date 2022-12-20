@@ -8,8 +8,9 @@ import datetime
 import argparse
 from datetime import datetime, timezone
 from functools import reduce
+import math
 
-from usage import vm_disk_usage
+from usage import vm_disk_usage, high_risk_hv
 
 # Getting the configuration data from clouds.yaml file
 config = openstack.config.loader.OpenStackConfig()
@@ -74,7 +75,7 @@ class HypervisorCollector(Collector):
                 # If there are no VMs on this HV we skip this HV
                 if len(current_hv_vm_list) == 0:
                     continue
-                print('------------------------------------')
+                print('----------------------------------------------')
                 print(f"Hypervisor: {hv}")
                 vm_usage_headers = ['Name', 'State', 'UUID', 'Allocated disk', 'Disk Usage', 'Use %']
                 # Getting list of VMs UUIDs and real disk usage from the usage ansible module
@@ -216,6 +217,46 @@ class ServerCollector(Collector):
                 servers_data, key=lambda x: int(x[8]), reverse=True)
         return servers_data
 
+class HighRiskCollector(Collector):
+    def get_resources(self, env):
+        cli = self._get_client(env)
+
+        # Getting a full list of hypervisors
+        hypervisors = cli.list_hypervisors()
+
+        # Creating a list of hypervisors hostnames
+        hypervisors_hostnames = [h.name for h in hypervisors]
+
+        # Running an ansible playbook to check disk, ram usage and raid puncture errors
+        hv_data = high_risk_hv(hypervisors_hostnames)
+
+        # Creating a list to check if the disk or ram usage is above 90% or if any raid puncture errors present
+        high_risk_hypervisors = {}
+        for host in hv_data:
+            if int(hv_data[host]['disk_usage']) > 90 or int(float(hv_data[host]['ram_usage'])) > 90 or int(hv_data[host]['raid_punctures']) > 0:
+                high_risk_hypervisors[host] = hv_data[host]
+
+        # In case of any high risk HV we print
+        if len(high_risk_hypervisors) > 0:
+            print(f"Number of high risk hypervisors on {env}:{len(high_risk_hypervisors)}")
+
+            headers = ['Host', 'Disk usage', 'Ram usage', 'Raid Punctures']
+
+            data = []
+
+            for hv in high_risk_hypervisors:
+                data.append([hv, 
+                f"{high_risk_hypervisors[hv]['disk_usage']}%",
+                f"{math.ceil(float(high_risk_hypervisors[hv]['ram_usage']))}%",
+                high_risk_hypervisors[hv]['raid_punctures']])
+
+            table = Table(headers, data)
+            table.print_table()    
+            
+        # In case of no high risk HV we print
+        else:
+            print(f"No high risk hypervisors on {env}")
+
 # Function to remove the usage output into integer (used for sorting purposes)
 def format_disk_usage(real_usage):
     if real_usage is not None:
@@ -237,7 +278,7 @@ def main():
         usage="collector.py [-e ENV] [-v --verbose] [-s --sort] [-b] [-t] [-d --disk]",
     )
 
-    parser.add_argument('collector', choices=['servers', 'hypervisors'],
+    parser.add_argument('collector', choices=['servers', 'hypervisors', 'risky'],
                         help='Collect data about instances or hypervisors'
                         )
     parser.add_argument('-e', '--env',
@@ -271,7 +312,8 @@ def main():
 
     # Defying dictionary with the possible collectors and their filters
     collectors = {'servers': {'type': ServerCollector(), 'filters': [
-        args.env, args.sorter or 'usage', args.hours or 24, args.bigger or 0]}, 'hypervisors': {'type': HypervisorCollector(), 'filters': [args.env, args.usage or False]}}
+        args.env, args.sorter or 'usage', args.hours or 24, args.bigger or 0]}, 'hypervisors': {'type': HypervisorCollector(), 'filters': [args.env, args.usage or False]},
+        'risky': {'type': HighRiskCollector(), 'filters':[args.env]}}
 
     # Creating a new collector depending on the provided type
     collector = collectors[args.collector]['type']
