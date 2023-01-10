@@ -276,7 +276,6 @@ class SubnetCollector(Collector):
             cidr = sub.cidr
             subnet_id = sub.id
             network_id = sub.network_id
-            subnet_name = sub.name
             # Checking if subnet key exists in the object and if not creating it
             if cidr not in result_subnets:
                 result_subnets[cidr]= {}
