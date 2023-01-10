@@ -9,6 +9,7 @@ import argparse
 from datetime import datetime, timezone
 from functools import reduce
 import math
+import ipaddress
 
 from usage import vm_disk_usage, high_risk_hv
 
@@ -257,6 +258,49 @@ class HighRiskCollector(Collector):
         else:
             print(f"No high risk hypervisors on {env}")
 
+class SubnetCollector(Collector):
+    def get_resources(self, env):
+        cli = self._get_client(env)
+
+        # Getting a list of all subnets
+        subnets = cli.list_subnets()
+
+        # Getting a list of all servers
+        servers = cli.list_servers(all_projects=True, bare=True, filters={'limit': 1000})
+
+        # Creating an empty result object
+        result_subnets = {}
+
+        # Iterating through all subnets and servers to find which servers use which subnets 
+        for sub in subnets:
+            cidr = sub.cidr
+            subnet_id = sub.id
+            network_id = sub.network_id
+            subnet_name = sub.name
+            # Checking if subnet key exists in the object and if not creating it
+            if cidr not in result_subnets:
+                result_subnets[cidr]= {}
+                result_subnets[cidr]['id'] = subnet_id
+                result_subnets[cidr]['network_id'] = network_id
+                result_subnets[cidr]['count'] = 0
+            for server in servers:
+                if bool(server.addresses) == True:   
+                    network_key = list(server.addresses)[0]
+                    ip = server.addresses[network_key][0]['addr']
+                    # If IP address is in the subnet range we increment the server count
+                    if ipaddress.ip_address(ip) in ipaddress.ip_network(cidr):
+                        result_subnets[cidr]['count'] += 1
+        
+        headers = ['Subnet', 'Subnet ID', 'Network ID', "VMs count"]
+        subnets_data = []
+
+        for subnet in result_subnets:
+            subnets_data.append([subnet, result_subnets[subnet]['id'],result_subnets[subnet]['network_id'], result_subnets[subnet]['count']])
+
+        table = Table(headers, subnets_data)
+        table.print_table()
+
+
 # Function to remove the usage output into integer (used for sorting purposes)
 def format_disk_usage(real_usage):
     if real_usage is not None:
@@ -278,7 +322,7 @@ def main():
         usage="collector.py [-e ENV] [-v --verbose] [-s --sort] [-b] [-t] [-d --disk]",
     )
 
-    parser.add_argument('collector', choices=['servers', 'hypervisors', 'risky'],
+    parser.add_argument('collector', choices=['servers', 'hypervisors', 'risky', 'subnets'],
                         help='Collect data about instances or hypervisors'
                         )
     parser.add_argument('-e', '--env',
@@ -313,7 +357,7 @@ def main():
     # Defying dictionary with the possible collectors and their filters
     collectors = {'servers': {'type': ServerCollector(), 'filters': [
         args.env, args.sorter or 'usage', args.hours or 24, args.bigger or 0]}, 'hypervisors': {'type': HypervisorCollector(), 'filters': [args.env, args.usage or False]},
-        'risky': {'type': HighRiskCollector(), 'filters':[args.env]}}
+        'risky': {'type': HighRiskCollector(), 'filters':[args.env]}, 'subnets': {'type': SubnetCollector(), 'filters': [args.env]}}
 
     # Creating a new collector depending on the provided type
     collector = collectors[args.collector]['type']
