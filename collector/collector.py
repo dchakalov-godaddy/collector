@@ -6,15 +6,20 @@ import openstack.config
 import prettytable
 import datetime
 import argparse
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta, date
 from functools import reduce
 import math
 import ipaddress
+import json
 
 from usage import vm_disk_usage, high_risk_hv
 
 # Getting the configuration data from clouds.yaml file
 config = openstack.config.loader.OpenStackConfig()
+
+clouds = ['ams_private', 'ams_ztn', 
+'iad_private', 'iad_ztn', 'phx_private', 'phx_understage', 'sin_private', 'sin_ztn'
+]
 
 class Table:
     def __init__(self, headers, data_list):
@@ -219,7 +224,7 @@ class ServerCollector(Collector):
         return servers_data
 
 class HighRiskCollector(Collector):
-    def get_resources(self, env):
+    def get_resources(self, env, json_output):
         cli = self._get_client(env)
 
         # Getting a full list of hypervisors
@@ -259,7 +264,7 @@ class HighRiskCollector(Collector):
             print(f"No high risk hypervisors on {env}")
 
 class SubnetCollector(Collector):
-    def get_resources(self, env):
+    def get_resources(self, env, json_output):
         cli = self._get_client(env)
 
         # Getting a list of all subnets
@@ -293,11 +298,44 @@ class SubnetCollector(Collector):
         headers = ['Subnet', 'Subnet ID', 'Network ID', "VMs count"]
         subnets_data = []
 
-        for subnet in result_subnets:
-            subnets_data.append([subnet, result_subnets[subnet]['id'],result_subnets[subnet]['network_id'], result_subnets[subnet]['count']])
+        if json_output:
+            
+            for subnet in result_subnets:
+                subnets_data.append({
+                    'subnet': subnet,
+                    'subnet_id': result_subnets[subnet]['id'],
+                    'network_id': result_subnets[subnet]['network_id'],
+                    'count': result_subnets[subnet]['count']
+                })
 
-        table = Table(headers, subnets_data)
-        table.print_table()
+            return {env: sorted(subnets_data, key=lambda x: int(x['count']), reverse=True)}
+        else:
+            print(env)
+            print(f"Number of subnets: {len(subnets)}")
+
+            for subnet in result_subnets:
+                subnets_data.append([subnet, result_subnets[subnet]['id'],result_subnets[subnet]['network_id'], result_subnets[subnet]['count']])
+
+            table = Table(headers, sorted(subnets_data, key=lambda x: int(x[3]), reverse=True))
+            table.print_table()
+
+class AllSubnetCollector(Collector):
+    def get_resources(self):
+        
+        today = date.today()
+        # dt = datetime.strptime(str(today), '%Y-%m-%d')
+        # start = dt - timedelta(days=dt.weekday())
+        # end = start + timedelta(days=6
+
+        json_data = []
+        for cloud in clouds:
+            json_data.append(SubnetCollector().get_resources(cloud, True))
+
+        subnets_json = json.dumps(json_data, default = lambda x: x.__dict__, indent=2)
+        current_date_obj = {str(today): json_data}
+        current_date_json= json.dumps(current_date_obj, default = lambda x: x.__dict__, indent=2)
+        # print(subnets_json)
+        print(current_date_json)
 
 
 # Function to remove the usage output into integer (used for sorting purposes)
@@ -321,7 +359,7 @@ def main():
         usage="collector.py [-e ENV] [-v --verbose] [-s --sort] [-b] [-t] [-d --disk]",
     )
 
-    parser.add_argument('collector', choices=['servers', 'hypervisors', 'risky', 'subnets'],
+    parser.add_argument('collector', choices=['servers', 'hypervisors', 'risky', 'subnets', 'all-subnets'],
                         help='Collect data about instances or hypervisors'
                         )
     parser.add_argument('-e', '--env',
@@ -346,6 +384,7 @@ def main():
         '-t', help='Show number of VMs created in the last specified hours', action='store', dest='hours')
     parser.add_argument('-d', '--disk',help= 'List each VM real disk usage on every HV', action='store_true', dest='usage')
 
+    parser.add_argument('-j', '--json', help='Provide output in JSON format', action='store_true', dest='json_output')
     args = parser.parse_args()
 
     if args.verbose:
@@ -355,8 +394,11 @@ def main():
 
     # Defying dictionary with the possible collectors and their filters
     collectors = {'servers': {'type': ServerCollector(), 'filters': [
-        args.env, args.sorter or 'usage', args.hours or 24, args.bigger or 0]}, 'hypervisors': {'type': HypervisorCollector(), 'filters': [args.env, args.usage or False]},
-        'risky': {'type': HighRiskCollector(), 'filters':[args.env]}, 'subnets': {'type': SubnetCollector(), 'filters': [args.env]}}
+        args.env, args.sorter or 'usage', args.hours or 24, args.bigger or 0, args.json_output or False]}, 
+        'hypervisors': {'type': HypervisorCollector(), 'filters': [args.env, args.usage or False, args.json_output or False]},
+        'risky': {'type': HighRiskCollector(), 'filters':[args.env, args.json_output or False]}, 
+        'subnets': {'type': SubnetCollector(), 'filters': [args.env, args.json_output or False]},
+        'all-subnets': {'type': AllSubnetCollector(), 'filters': []}}
 
     # Creating a new collector depending on the provided type
     collector = collectors[args.collector]['type']
