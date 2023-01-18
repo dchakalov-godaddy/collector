@@ -242,26 +242,41 @@ class HighRiskCollector(Collector):
             if int(hv_data[host]['disk_usage']) > 90 or int(float(hv_data[host]['ram_usage'])) > 90 or int(hv_data[host]['raid_punctures']) > 0:
                 high_risk_hypervisors[host] = hv_data[host]
 
-        # In case of any high risk HV we print
-        if len(high_risk_hypervisors) > 0:
-            print(f"Number of high risk hypervisors on {env}:{len(high_risk_hypervisors)}")
-
-            headers = ['Host', 'Disk usage', 'Ram usage', 'Raid Punctures']
-
-            data = []
-
-            for hv in high_risk_hypervisors:
-                data.append([hv, 
-                f"{high_risk_hypervisors[hv]['disk_usage']}%",
-                f"{math.ceil(float(high_risk_hypervisors[hv]['ram_usage']))}%",
-                high_risk_hypervisors[hv]['raid_punctures']])
-
-            table = Table(headers, data)
-            table.print_table()    
-            
-        # In case of no high risk HV we print
+        
+        data = []
+        
+        if json_output:
+            # In case of any high risk HV we print
+            if len(high_risk_hypervisors) > 0:
+                for hv in high_risk_hypervisors:
+                    data.append({
+                        'hv': hv,
+                        'disk_usage': f"{high_risk_hypervisors[hv]['disk_usage']}%",
+                        'ram_usage': f"{math.ceil(float(high_risk_hypervisors[hv]['ram_usage']))}%",
+                        'raid_punctures': high_risk_hypervisors[hv]['raid_punctures']
+                    })
+                return {env: data}
+            # In case of no high risk HV we print
+            else:
+                return {env: 'No high risk hypervisors'}
         else:
-            print(f"No high risk hypervisors on {env}")
+            # In case of any high risk HV we print
+            if len(high_risk_hypervisors) > 0:
+                print(f"Number of high risk hypervisors on {env}:{len(high_risk_hypervisors)}")
+                headers = ['Host', 'Disk usage', 'Ram usage', 'Raid Punctures']
+                for hv in high_risk_hypervisors:
+                    data.append([hv, 
+                    f"{high_risk_hypervisors[hv]['disk_usage']}%",
+                    f"{math.ceil(float(high_risk_hypervisors[hv]['ram_usage']))}%",
+                    high_risk_hypervisors[hv]['raid_punctures']])
+                table = Table(headers, data)
+                table.print_table()  
+            # In case of no high risk HV we print
+            else:
+                print(f"No high risk hypervisors on {env}")
+            
+
+            
 
 class SubnetCollector(Collector):
     def get_resources(self, env, json_output):
@@ -337,6 +352,20 @@ class AllSubnetCollector(Collector):
         # print(subnets_json)
         print(current_date_json)
 
+class AllHighRiskCollector(Collector):
+    def get_resources(self):
+        today = date.today()
+
+        json_data = []
+
+        for cloud in clouds:
+            json_data.append(HighRiskCollector().get_resources(cloud, True))
+        
+        risky_json = json.dumps(json_data, default = lambda x: x.__dict__, indent=2)
+        current_date_obj = {str(today): json_data}
+        current_date_json= json.dumps(current_date_obj, default = lambda x: x.__dict__, indent=2)
+        print(current_date_json)
+
 
 # Function to remove the usage output into integer (used for sorting purposes)
 def format_disk_usage(real_usage):
@@ -359,7 +388,7 @@ def main():
         usage="collector.py [-e ENV] [-v --verbose] [-s --sort] [-b] [-t] [-d --disk]",
     )
 
-    parser.add_argument('collector', choices=['servers', 'hypervisors', 'risky', 'subnets', 'all-subnets'],
+    parser.add_argument('collector', choices=['servers', 'hypervisors', 'risky', 'subnets', 'all-subnets', 'all-risky'],
                         help='Collect data about instances or hypervisors'
                         )
     parser.add_argument('-e', '--env',
@@ -394,11 +423,12 @@ def main():
 
     # Defying dictionary with the possible collectors and their filters
     collectors = {'servers': {'type': ServerCollector(), 'filters': [
-        args.env, args.sorter or 'usage', args.hours or 24, args.bigger or 0, args.json_output or False]}, 
-        'hypervisors': {'type': HypervisorCollector(), 'filters': [args.env, args.usage or False, args.json_output or False]},
+        args.env, args.sorter or 'usage', args.hours or 24, args.bigger or 0]}, 
+        'hypervisors': {'type': HypervisorCollector(), 'filters': [args.env, args.usage or False]},
         'risky': {'type': HighRiskCollector(), 'filters':[args.env, args.json_output or False]}, 
         'subnets': {'type': SubnetCollector(), 'filters': [args.env, args.json_output or False]},
-        'all-subnets': {'type': AllSubnetCollector(), 'filters': []}}
+        'all-subnets': {'type': AllSubnetCollector(), 'filters': []},
+        'all-risky': {'type': AllHighRiskCollector(), 'filters': []}}
 
     # Creating a new collector depending on the provided type
     collector = collectors[args.collector]['type']
