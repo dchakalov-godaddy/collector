@@ -18,10 +18,11 @@ from usage import high_risk_hv, vm_disk_usage
 config = openstack.config.loader.OpenStackConfig()
 
 clouds = [
-    'ams_private',
-    'iad_private',
-    'phx_private',
-    'sin_private'
+    # 'ams_private',
+    # 'iad_private',
+    # 'phx_private',
+    # 'sin_private'
+    'ams_ztn'
 ]
 
 
@@ -364,7 +365,8 @@ class SubnetCollector(Collector):
                         server_hypervisor = server.hypervisor_hostname
                         # Adding the HV if not in the subnet list already
                         if server_hypervisor not in result_subnets[cidr]['hvs']:
-                            result_subnets[cidr]['hvs'].append(server_hypervisor)
+                            result_subnets[cidr]['hvs'].append(
+                                server_hypervisor)
 
         headers = ['Subnet', 'Subnet ID',
                    'Network ID', "VMs count", 'HVs count']
@@ -450,12 +452,14 @@ def main():
     )
 
     parser.add_argument('collector', choices=['servers', 'hypervisors', 'risky', 'subnets', 'all'],
-                        help='Collect data about instances or hypervisors'
+                        help='Collect data about instances or hypervisors',
+                        default='all'
                         )
     parser.add_argument('-e', '--env',
                         help='Cloud environment for which the results will be shown',
-                        required=True,
+                        # required=True,
                         action='store',
+                        default='all',
                         dest='env')
     parser.add_argument('-s', '--sort',
                         action='store',
@@ -470,7 +474,6 @@ def main():
                         help='Showing verbose output for the query',
                         action='store_true',
                         dest='verbose')
-
     parser.add_argument('-t',
                         help='Show number of VMs created in the last specified hours',
                         action='store',
@@ -478,13 +481,13 @@ def main():
     parser.add_argument('-d', '--disk',
                         help='List each VM real disk usage on every HV',
                         action='store_true',
-                        dest='usage')
-
+                        dest='usage',
+                        default=False)
     parser.add_argument('-j', '--json',
                         help='Provide output in JSON format',
                         action='store_true',
-                        dest='json_output')
-
+                        dest='json_output',
+                        default=False)
     parser.add_argument('-w',
                         help='Select the type of collector you wish to collect all data for',
                         action='store',
@@ -501,10 +504,11 @@ def main():
     # Defying dictionary with the possible collectors and their filters
     collectors = {'servers': {'type': ServerCollector(), 'filters': [
         args.env, args.sorter or 'usage', args.hours or 24, args.bigger or 0]},
-        'hypervisors': {'type': HypervisorCollector(), 'filters': [args.env, args.usage or False, args.json_output or False]},
-        'risky': {'type': HighRiskCollector(), 'filters': [args.env, args.json_output or False]},
-        'subnets': {'type': SubnetCollector(), 'filters': [args.env, args.json_output or False]},
-        'all': {'type': AllCollector(), 'filters': [args.which, args.usage or False]}}
+        'hypervisors': {'type': HypervisorCollector(), 'filters': [args.env, args.usage, args.json_output]},
+        'risky': {'type': HighRiskCollector(), 'filters': [args.env, args.json_output]},
+        'subnets': {'type': SubnetCollector(), 'filters': [args.env, args.json_output]},
+        'all': {'type': AllCollector(), 'filters': [args.which, args.usage]}
+        }
 
     # Creating a new collector depending on the provided type
     collector = collectors[args.collector]['type']

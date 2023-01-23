@@ -5,13 +5,12 @@ Tool that gathers data regarding openstack hypervisors and instances. Uses the A
 ## Help menu 
 
 ```bash
-collector -h
 usage: collector.py [-e ENV] [-v --verbose] [-s --sort] [-b] [-t] [-d --disk]
 
 Collects data via OpenStack API
 
 positional arguments:
-  {servers,hypervisors}
+  {servers,hypervisors,risky,subnets,all}
                         Collect data about instances or hypervisors
 
 optional arguments:
@@ -22,6 +21,9 @@ optional arguments:
   -v, --verbose         Showing verbose output for the query
   -t HOURS              Show number of VMs created in the last specified hours
   -d, --disk            List each VM real disk usage on every HV
+  -j, --json            Provide output in JSON format
+  -w {subnets,risky,hypervisors}
+                        Select the type of collector you wish to collect all data for
 ```
 
 ## OpenStack Client Configuration file
@@ -144,4 +146,28 @@ Hypervisor: n3plcldhv001-01.prod.ams3.gdg
 |  n3plproxy001  | ACTIVE | df7723f3-6311-4199-9d3e-c5d1e10d246a |      120G      |    28G     |  23.3 |
 |   n3pliiq001   | ACTIVE | 4e221b4a-5ba3-4584-9c91-1e2ff9ea84b1 |      240G      |    28G     |  11.7 |
 +----------------+--------+--------------------------------------+----------------+------------+-------+
+```
+
+## COllecting data from all clouds
+
+```bash
+❯ collector all -w subnets
+{
+  "2023-01-23": [
+    {
+      "ams_ztn": [
+        {
+          "subnet": "10.217.192.0/22",
+          "subnet_id": "caf5ddda-9cfd-45ca-9a4e-faed933e10f9",
+          "network_id": "0af05db8-3ac7-4e2d-8cdb-9e12ced56fe5",
+          "count": 546,
+          "hypervisors": 41
+        },
+        {
+          "subnet": "10.197.156.0/22",
+          "subnet_id": "39bf2161-f618-4a7a-bdb5-daec73cabae3",
+          "network_id": "0af05db8-3ac7-4e2d-8cdb-9e12ced56fe5",
+          "count": 525,
+          "hypervisors": 43
+        },
 ```
