@@ -18,11 +18,11 @@ from usage import high_risk_hv, vm_disk_usage
 config = openstack.config.loader.OpenStackConfig()
 
 clouds = [
-    # 'ams_private',
-    # 'iad_private',
-    # 'phx_private',
-    # 'sin_private'
-    'ams_ztn'
+    'ams_private',
+    'iad_private',
+    'phx_private',
+    'sin_private'
+    # 'ams_ztn'
 ]
 
 
@@ -328,7 +328,7 @@ class HighRiskCollector(Collector):
 
 
 class SubnetCollector(Collector):
-    def get_resources(self, env, json_output):
+    def get_resources(self, env, usage, json_output):
         cli = self._get_client(env)
 
         # Getting a list of all subnets
@@ -351,7 +351,7 @@ class SubnetCollector(Collector):
                 result_subnets[cidr] = {}
                 result_subnets[cidr]['id'] = subnet_id
                 result_subnets[cidr]['network_id'] = network_id
-                result_subnets[cidr]['count'] = 0
+                result_subnets[cidr]['vms'] = []
                 result_subnets[cidr]['hvs'] = []
             for server in servers:
                 if bool(server.addresses) == True:
@@ -359,7 +359,7 @@ class SubnetCollector(Collector):
                     ip = server.addresses[network_key][0]['addr']
                     # If IP address is in the subnet range we increment the server count
                     if ipaddress.ip_address(ip) in ipaddress.ip_network(cidr):
-                        result_subnets[cidr]['count'] += 1
+                        result_subnets[cidr]['vms'].append(server)
 
                         # Collecting the hypervisor the VM is hosted on
                         server_hypervisor = server.hypervisor_hostname
@@ -373,24 +373,80 @@ class SubnetCollector(Collector):
 
         subnets_data = []
         if json_output:
-
             for subnet in result_subnets:
-                subnets_data.append({
-                    'subnet': subnet,
-                    'subnet_id': result_subnets[subnet]['id'],
-                    'network_id': result_subnets[subnet]['network_id'],
-                    'count': result_subnets[subnet]['count'],
-                    'hypervisors': len(result_subnets[subnet]['hvs'])
-                })
+                subnet_obj = {}
+                if usage:
+                    if "Total usage" not in headers:
+                        headers.append('Total usage')
+                    # Collecting current subnet hypervisors
+                    subnet_hvs = result_subnets[subnet]['hvs']
+                    # Collecting current subnet servers
+                    subnet_vms = result_subnets[subnet]['vms']
+                    # Filtering current subnet servers to select only IDs
+                    subnet_vms_ids = [vm.id for vm in subnet_vms]
+                    # Getting each VM disk usage on the subnet hypervisors
+                    total_subnet_disk_usage = 0
+                    if len(subnet_hvs) != 0:
+                        vm_data = vm_disk_usage(
+                            [hv for hv in subnet_hvs if hv is not None])
+                        for vm in vm_data:
+                            if vm in subnet_vms_ids:
+                                current_vm_disk_usage = vm_data[vm]
+                                if 'G' in current_vm_disk_usage:
+                                    total_subnet_disk_usage += float(
+                                        current_vm_disk_usage.replace("G", "")) * 1024
+                                elif "M" in current_vm_disk_usage:
+                                    total_subnet_disk_usage += float(
+                                        current_vm_disk_usage.replace("M", ""))
+                    subnet_obj['total_usage'] = f"{round(total_subnet_disk_usage / 1024, 1)}G"
+                    
+                subnet_obj['subnet'] = subnet
+                subnet_obj['subnet_id'] = result_subnets[subnet]['id']
+                subnet_obj['network_id'] = result_subnets[subnet]['network_id']
+                subnet_obj['count'] = len(result_subnets[subnet]['vms'])
+                subnet_obj['hypervisors'] = len(result_subnets[subnet]['hvs'])
+                subnets_data.append(subnet_obj)
 
-            return {env: sorted(subnets_data, key=lambda x: int(x['count']), reverse=True)}
+            return {env: sorted(subnets_data, key=lambda x: int((x['count'])), reverse=True)}
         else:
             print(env)
             print(f"Number of subnets: {len(subnets)}")
 
             for subnet in result_subnets:
-                subnets_data.append([subnet, result_subnets[subnet]['id'], result_subnets[subnet]
-                                    ['network_id'], result_subnets[subnet]['count'], len(result_subnets[subnet]['hvs'])])
+                if usage:
+                    if "Total usage" not in headers:
+                        headers.append('Total usage')
+                    # Collecting current subnet hypervisors
+                    subnet_hvs = result_subnets[subnet]['hvs']
+                    # Collecting current subnet servers
+                    subnet_vms = result_subnets[subnet]['vms']
+                    # Filtering current subnet servers to select only IDs
+                    subnet_vms_ids = [vm.id for vm in subnet_vms]
+                    # Getting each VM disk usage on the subnet hypervisors
+                    total_subnet_disk_usage = 0
+                    if len(subnet_hvs) != 0:
+                        vm_data = vm_disk_usage(
+                            [hv for hv in subnet_hvs if hv is not None])
+                        for vm in vm_data:
+                            if vm in subnet_vms_ids:
+                                current_vm_disk_usage = vm_data[vm]
+                                if 'G' in current_vm_disk_usage:
+                                    total_subnet_disk_usage += float(
+                                        current_vm_disk_usage.replace("G", "")) * 1024
+                                elif "M" in current_vm_disk_usage:
+                                    total_subnet_disk_usage += float(
+                                        current_vm_disk_usage.replace("M", ""))
+                    # if total_subnet_disk_usage > 1048576:
+                    #     total_subnet_disk_usage = f"{round(total_subnet_disk_usage / 1048576, 1)}T"
+                    # else:
+                    #     total_subnet_disk_usage = f"{round(total_subnet_disk_usage / 1024, 1)}G"
+                    subnets_data.append([subnet, result_subnets[subnet]['id'], result_subnets[subnet]
+                                         ['network_id'], len(result_subnets[subnet]['vms']), len(
+                                             result_subnets[subnet]['hvs']),
+                                         f"{round(total_subnet_disk_usage / 1024, 1)}G"])
+                else:
+                    subnets_data.append([subnet, result_subnets[subnet]['id'], result_subnets[subnet]
+                                         ['network_id'], len(result_subnets[subnet]['vms']), len(result_subnets[subnet]['hvs'])])
 
             table = Table(headers, sorted(
                 subnets_data, key=lambda x: int(x[3]), reverse=True))
@@ -417,7 +473,7 @@ class AllCollector(Collector):
 
         json_data = []
         for cloud in clouds:
-            if which == 'hypervisors':
+            if which == 'hypervisors' or which == 'subnets':
                 json_data.append(
                     collector_type.get_resources(cloud, usage, True))
             else:
@@ -506,9 +562,9 @@ def main():
         args.env, args.sorter or 'usage', args.hours or 24, args.bigger or 0]},
         'hypervisors': {'type': HypervisorCollector(), 'filters': [args.env, args.usage, args.json_output]},
         'risky': {'type': HighRiskCollector(), 'filters': [args.env, args.json_output]},
-        'subnets': {'type': SubnetCollector(), 'filters': [args.env, args.json_output]},
+        'subnets': {'type': SubnetCollector(), 'filters': [args.env, args.usage, args.json_output]},
         'all': {'type': AllCollector(), 'filters': [args.which, args.usage]}
-        }
+    }
 
     # Creating a new collector depending on the provided type
     collector = collectors[args.collector]['type']
