@@ -1,25 +1,29 @@
 #!/usr/bin/env python
 
+import argparse
+import datetime
+import ipaddress
+import json
+import math
 import sys
+from datetime import date, datetime, timedelta, timezone
+from functools import reduce
+
 import openstack
 import openstack.config
 import prettytable
-import datetime
-import argparse
-from datetime import datetime, timezone, timedelta, date
-from functools import reduce
-import math
-import ipaddress
-import json
-
-from usage import vm_disk_usage, high_risk_hv
+from usage import high_risk_hv, vm_disk_usage
 
 # Getting the configuration data from clouds.yaml file
 config = openstack.config.loader.OpenStackConfig()
 
-clouds = ['ams_private', 'ams_ztn', 
-'iad_private', 'iad_ztn', 'phx_private', 'phx_understage', 'sin_private', 'sin_ztn'
+clouds = [
+    'ams_private',
+    'iad_private',
+    'phx_private',
+    'sin_private'
 ]
+
 
 class Table:
     def __init__(self, headers, data_list):
@@ -50,74 +54,119 @@ class Collector:
 
 class HypervisorCollector(Collector):
 
-    def get_resources(self, env, usage):
+    def get_resources(self, env, usage, json_output):
         cli = self._get_client(env)
         hypervisors = cli.list_hypervisors()
 
         # Setting the result table headings
-        headers = ["Name", 'State', "Host IP", 'Disk size', 'Used space', 'Free space',  "Use %", 'Running VMs']
-        
+        headers = ["Name", 'State', "Host IP", 'Disk size',
+                   'Used space', 'Free space',  "Use %", 'Running VMs']
+
         # Filling the table rows only with the needed columns
         hypervisors_data = []
         for hypervisor in hypervisors:
             hypervisors_data.append(
-                [hypervisor.name, hypervisor.state, hypervisor.host_ip, 
-                f"{round(hypervisor.local_disk_size/1024, 2)} TB", f"{hypervisor.local_disk_used} GB", 
-                f"{hypervisor.local_disk_free} GB", round((hypervisor.local_disk_used/hypervisor.local_disk_size)* 100, 1) , hypervisor.running_vms])
+                [hypervisor.name, hypervisor.state, hypervisor.host_ip,
+                 f"{round(hypervisor.local_disk_size/1024, 2)} TB", f"{hypervisor.local_disk_used} GB",
+                 f"{hypervisor.local_disk_free} GB", round((hypervisor.local_disk_used/hypervisor.local_disk_size) * 100, 1), hypervisor.running_vms])
 
-        self.print_general_info(env, hypervisors)
         if usage:
+            hv_json_data = []
+
             # Getting all servers
-            servers = cli.list_servers(all_projects=True, bare=True, filters={'limit': 1000})
+            servers = cli.list_servers(
+                all_projects=True, bare=True, filters={'limit': 1000})
             # Getting all flavors
             flavors = cli.list_flavors()
             # Creating a list of Hypervisor hostnames
-            hypervisors_list = [ h.name for h in hypervisors]
+            hypervisors_list = [h.name for h in hypervisors]
             # Getting a dictionary containing all VMs and their real disk usage
             vm_data = vm_disk_usage(hypervisors_list)
             for hv in hypervisors_list:
                 # Creating list of VMs on the current Hypervisor
-                current_hv_vm_list = [srv for srv in servers if srv.hypervisor_hostname == hv]
+                current_hv_vm_list = [
+                    srv for srv in servers if srv.hypervisor_hostname == hv]
                 # If there are no VMs on this HV we skip this HV
                 if len(current_hv_vm_list) == 0:
                     continue
-                print('----------------------------------------------')
-                print(f"Hypervisor: {hv}")
-                vm_usage_headers = ['Name', 'State', 'UUID', 'Allocated disk', 'Disk Usage', 'Use %']
+
                 # Getting list of VMs UUIDs and real disk usage from the usage ansible module
-                data = []
-                for server in current_hv_vm_list:
+                if json_output:
+                    hv_vm_list = []
+                    for server in current_hv_vm_list:
+                        flavor = [f for f in flavors if f.id ==
+                                  server.flavor.id or f.name == server.flavor.id][0]
+                        if server.id not in vm_data:
+                            continue
+                        real_usage = vm_data[server.id]
+                        real_usage = format_disk_usage(real_usage)
+                        hv_vm_list.append({
+                            'name': server.name, 'state': server.status, 'uuid': server.id,
+                            'allocated_disk': f"{flavor.disk}G", 'disk_usage': vm_data[server.id],
+                            'use_percentage': round((float(real_usage) / flavor.disk) * 100, 1)
+                        })
 
-                    # Getting the server flavor
-                    flavor = [f for f in flavors if f.id == server.flavor.id or f.name == server.flavor.id][0]
-                    if server.id not in vm_data:
-                        continue
-                    real_usage = vm_data[server.id]
-                    real_usage = format_disk_usage(real_usage)
-                    data.append([server.name, server.status, server.id, f"{flavor.disk}G", vm_data[server.id], round((float(real_usage) / flavor.disk)* 100, 1)])     
-                data = sorted(data, key=lambda x: int(x[5]), reverse=True)    
-                vm_table = Table(vm_usage_headers, data)
-                vm_table.print_table()
-        else: 
-            hypervisors_data = sorted(
-                hypervisors_data, key=lambda x: int(x[6]), reverse=True)
-            table = Table(headers, hypervisors_data)
-            table.print_table()
+                    hv_json_data.append({hv: hv_vm_list})
+                else:
+                    self.print_general_info(env, hypervisors)
+                    print('----------------------------------------------')
+                    print(f"Hypervisor: {hv}")
+                    vm_usage_headers = ['Name', 'State', 'UUID',
+                                        'Allocated disk', 'Disk Usage', 'Use %']
 
-    
+                    for server in current_hv_vm_list:
+
+                        # Getting the server flavor
+                        flavor = [f for f in flavors if f.id ==
+                                  server.flavor.id or f.name == server.flavor.id][0]
+                        if server.id not in vm_data:
+                            continue
+                        real_usage = vm_data[server.id]
+                        real_usage = format_disk_usage(real_usage)
+                        data.append([server.name, server.status, server.id, f"{flavor.disk}G", vm_data[server.id], round(
+                            (float(real_usage) / flavor.disk) * 100, 1)])
+                    data = sorted(data, key=lambda x: int(x[5]), reverse=True)
+                    vm_table = Table(vm_usage_headers, data)
+                    vm_table.print_table()
+            if json_output:
+                return {env: hv_json_data}
+        else:
+            hv_data = []
+            if json_output:
+                for hv in hypervisors_data:
+                    hv_data.append({
+                        "name": hv[0], 'state': hv[1],
+                        "host_ip": hv[2], 'disk_size': hv[3],
+                        'used_space': hv[4], 'free_space': hv[5],
+                        "use_percentage": hv[6], 'running_vms': hv[7]
+                    })
+
+                return {env: sorted(hv_data, key=lambda x: int(x['use_percentage']), reverse=True)}
+
+            else:
+                self.print_general_info(env, hypervisors)
+                hypervisors_data = sorted(
+                    hypervisors_data, key=lambda x: int(x[6]), reverse=True)
+                table = Table(headers, hypervisors_data)
+                table.print_table()
+
     @classmethod
     def print_general_info(self, env, hypervisors):
-            print(f"Number of HVs on {env}: {len(hypervisors)}")
-            print(f"Number of HVs with 0 running VMs: {len([h for h in hypervisors if h.running_vms == 0])}")
-            print(f"Total disk used: {round(reduce(lambda a, b: a + b, [h.local_disk_used for h in hypervisors ])/1024, 2)} TB")
-            print(f"Total free space: {round(reduce(lambda a, b: a + b, [h.local_disk_free for h in hypervisors ])/1024, 2)} TB")
+        print(f"Number of HVs on {env}: {len(hypervisors)}")
+        print(
+            f"Number of HVs with 0 running VMs: {len([h for h in hypervisors if h.running_vms == 0])}")
+        print(
+            f"Total disk used: {round(reduce(lambda a, b: a + b, [h.local_disk_used for h in hypervisors ])/1024, 2)} TB")
+        print(
+            f"Total free space: {round(reduce(lambda a, b: a + b, [h.local_disk_free for h in hypervisors ])/1024, 2)} TB")
 
 
 class ServerCollector(Collector):
     def get_resources(self, env, sorter,  hours, disk):
         cli = self._get_client(env)
         # Getting all servers
-        servers = cli.list_servers(all_projects=True, bare=True, filters={'limit': 1000})
+        servers = cli.list_servers(
+            all_projects=True, bare=True, filters={'limit': 1000})
         # Getting all flavors
         flavors = cli.list_flavors()
         # Setting the result table headings
@@ -133,10 +182,11 @@ class ServerCollector(Collector):
         for server in servers:
             flavor_id = server.flavor.id
             # Getting the server flavor
-            srv_flavor = [f for f in flavors if f.id == flavor_id or f.name == flavor_id][0] 
+            srv_flavor = [f for f in flavors if f.id ==
+                          flavor_id or f.name == flavor_id][0]
             real_usage = vm_disk_usage_list.get(server.id)
             real_usage = format_disk_usage(real_usage)
-            usage_percentage = round((real_usage / srv_flavor.disk) * 100, 2) 
+            usage_percentage = round((real_usage / srv_flavor.disk) * 100, 2)
             servers_data.append([server.name, server.status, server.created_at, srv_flavor.name,
                                 srv_flavor.disk, real_usage, usage_percentage,  srv_flavor.ram, srv_flavor.vcpus])
 
@@ -146,7 +196,7 @@ class ServerCollector(Collector):
         servers_data = self.switch(sorter, servers_data)
         table = Table(headers, servers_data)
         table.print_table()
-    
+
     @classmethod
     def print_general_info(self, servers_data, env, hours):
         print('------------------------------------')
@@ -162,11 +212,10 @@ class ServerCollector(Collector):
             # time_diff is an object from which we get the total seconds and convert them to hours
             return time_diff.total_seconds() / 3600
 
-            
         def get_servers_size_data(servers_data):
             size_data = {}
             for server in sorted(
-                servers_data, key=lambda x: int(x[4]), reverse=True):
+                    servers_data, key=lambda x: int(x[4]), reverse=True):
                 ''' Checking if the size key exist in the size_data dictionary
                     if it does its value is increased else its added to the dictionary with value 1'''
                 if server[4] in size_data.keys():
@@ -223,6 +272,7 @@ class ServerCollector(Collector):
                 servers_data, key=lambda x: int(x[8]), reverse=True)
         return servers_data
 
+
 class HighRiskCollector(Collector):
     def get_resources(self, env, json_output):
         cli = self._get_client(env)
@@ -242,9 +292,8 @@ class HighRiskCollector(Collector):
             if int(hv_data[host]['disk_usage']) > 90 or int(float(hv_data[host]['ram_usage'])) > 90 or int(hv_data[host]['raid_punctures']) > 0:
                 high_risk_hypervisors[host] = hv_data[host]
 
-        
         data = []
-        
+
         if json_output:
             # In case of any high risk HV we print
             if len(high_risk_hypervisors) > 0:
@@ -262,21 +311,20 @@ class HighRiskCollector(Collector):
         else:
             # In case of any high risk HV we print
             if len(high_risk_hypervisors) > 0:
-                print(f"Number of high risk hypervisors on {env}:{len(high_risk_hypervisors)}")
+                print(
+                    f"Number of high risk hypervisors on {env}:{len(high_risk_hypervisors)}")
                 headers = ['Host', 'Disk usage', 'Ram usage', 'Raid Punctures']
                 for hv in high_risk_hypervisors:
-                    data.append([hv, 
-                    f"{high_risk_hypervisors[hv]['disk_usage']}%",
-                    f"{math.ceil(float(high_risk_hypervisors[hv]['ram_usage']))}%",
-                    high_risk_hypervisors[hv]['raid_punctures']])
+                    data.append([hv,
+                                 f"{high_risk_hypervisors[hv]['disk_usage']}%",
+                                 f"{math.ceil(float(high_risk_hypervisors[hv]['ram_usage']))}%",
+                                 high_risk_hypervisors[hv]['raid_punctures']])
                 table = Table(headers, data)
-                table.print_table()  
+                table.print_table()
             # In case of no high risk HV we print
             else:
                 print(f"No high risk hypervisors on {env}")
-            
 
-            
 
 class SubnetCollector(Collector):
     def get_resources(self, env, json_output):
@@ -286,41 +334,51 @@ class SubnetCollector(Collector):
         subnets = cli.list_subnets()
 
         # Getting a list of all servers
-        servers = cli.list_servers(all_projects=True, bare=True, filters={'limit': 1000})
+        servers = cli.list_servers(
+            all_projects=True, bare=True, filters={'limit': 1000})
 
         # Creating an empty result object
         result_subnets = {}
 
-        # Iterating through all subnets and servers to find which servers use which subnets 
+        # Iterating through all subnets and servers to find which servers use which subnets
         for sub in subnets:
             cidr = sub.cidr
             subnet_id = sub.id
             network_id = sub.network_id
             # Checking if subnet key exists in the object and if not creating it
             if cidr not in result_subnets:
-                result_subnets[cidr]= {}
+                result_subnets[cidr] = {}
                 result_subnets[cidr]['id'] = subnet_id
                 result_subnets[cidr]['network_id'] = network_id
                 result_subnets[cidr]['count'] = 0
+                result_subnets[cidr]['hvs'] = []
             for server in servers:
-                if bool(server.addresses) == True:   
+                if bool(server.addresses) == True:
                     network_key = list(server.addresses)[0]
                     ip = server.addresses[network_key][0]['addr']
                     # If IP address is in the subnet range we increment the server count
                     if ipaddress.ip_address(ip) in ipaddress.ip_network(cidr):
                         result_subnets[cidr]['count'] += 1
-        
-        headers = ['Subnet', 'Subnet ID', 'Network ID', "VMs count"]
-        subnets_data = []
 
+                        # Collecting the hypervisor the VM is hosted on
+                        server_hypervisor = server.hypervisor_hostname
+                        # Adding the HV if not in the subnet list already
+                        if server_hypervisor not in result_subnets[cidr]['hvs']:
+                            result_subnets[cidr]['hvs'].append(server_hypervisor)
+
+        headers = ['Subnet', 'Subnet ID',
+                   'Network ID', "VMs count", 'HVs count']
+
+        subnets_data = []
         if json_output:
-            
+
             for subnet in result_subnets:
                 subnets_data.append({
                     'subnet': subnet,
                     'subnet_id': result_subnets[subnet]['id'],
                     'network_id': result_subnets[subnet]['network_id'],
-                    'count': result_subnets[subnet]['count']
+                    'count': result_subnets[subnet]['count'],
+                    'hypervisors': len(result_subnets[subnet]['hvs'])
                 })
 
             return {env: sorted(subnets_data, key=lambda x: int(x['count']), reverse=True)}
@@ -329,14 +387,27 @@ class SubnetCollector(Collector):
             print(f"Number of subnets: {len(subnets)}")
 
             for subnet in result_subnets:
-                subnets_data.append([subnet, result_subnets[subnet]['id'],result_subnets[subnet]['network_id'], result_subnets[subnet]['count']])
+                subnets_data.append([subnet, result_subnets[subnet]['id'], result_subnets[subnet]
+                                    ['network_id'], result_subnets[subnet]['count'], len(result_subnets[subnet]['hvs'])])
 
-            table = Table(headers, sorted(subnets_data, key=lambda x: int(x[3]), reverse=True))
+            table = Table(headers, sorted(
+                subnets_data, key=lambda x: int(x[3]), reverse=True))
             table.print_table()
 
-class AllSubnetCollector(Collector):
-    def get_resources(self):
-        
+
+class AllCollector(Collector):
+    def get_resources(self, which, usage):
+
+        def switch(which):
+            if which == 'subnets':
+                return SubnetCollector()
+            elif which == 'risky':
+                return HighRiskCollector()
+            elif which == 'hypervisors':
+                return HypervisorCollector()
+
+        collector_type = switch(which)
+
         today = date.today()
         # dt = datetime.strptime(str(today), '%Y-%m-%d')
         # start = dt - timedelta(days=dt.weekday())
@@ -344,26 +415,16 @@ class AllSubnetCollector(Collector):
 
         json_data = []
         for cloud in clouds:
-            json_data.append(SubnetCollector().get_resources(cloud, True))
+            if which == 'hypervisors':
+                json_data.append(
+                    collector_type.get_resources(cloud, usage, True))
+            else:
+                json_data.append(collector_type.get_resources(cloud, True))
 
-        subnets_json = json.dumps(json_data, default = lambda x: x.__dict__, indent=2)
         current_date_obj = {str(today): json_data}
-        current_date_json= json.dumps(current_date_obj, default = lambda x: x.__dict__, indent=2)
+        current_date_json = json.dumps(
+            current_date_obj, default=lambda x: x.__dict__, indent=2)
         # print(subnets_json)
-        print(current_date_json)
-
-class AllHighRiskCollector(Collector):
-    def get_resources(self):
-        today = date.today()
-
-        json_data = []
-
-        for cloud in clouds:
-            json_data.append(HighRiskCollector().get_resources(cloud, True))
-        
-        risky_json = json.dumps(json_data, default = lambda x: x.__dict__, indent=2)
-        current_date_obj = {str(today): json_data}
-        current_date_json= json.dumps(current_date_obj, default = lambda x: x.__dict__, indent=2)
         print(current_date_json)
 
 
@@ -371,7 +432,7 @@ class AllHighRiskCollector(Collector):
 def format_disk_usage(real_usage):
     if real_usage is not None:
         if "M" in real_usage:
-            real_usage = round(int(real_usage.replace('M', ""))/ 1024, 2)
+            real_usage = round(int(real_usage.replace('M', "")) / 1024, 2)
         elif 'G' in real_usage:
             real_usage = int(float(real_usage.replace('G', "")))
         else:
@@ -379,7 +440,7 @@ def format_disk_usage(real_usage):
     else:
         real_usage = 0
     return real_usage
-       
+
 
 def main():
     parser = argparse.ArgumentParser(
@@ -388,7 +449,7 @@ def main():
         usage="collector.py [-e ENV] [-v --verbose] [-s --sort] [-b] [-t] [-d --disk]",
     )
 
-    parser.add_argument('collector', choices=['servers', 'hypervisors', 'risky', 'subnets', 'all-subnets', 'all-risky'],
+    parser.add_argument('collector', choices=['servers', 'hypervisors', 'risky', 'subnets', 'all'],
                         help='Collect data about instances or hypervisors'
                         )
     parser.add_argument('-e', '--env',
@@ -409,11 +470,27 @@ def main():
                         help='Showing verbose output for the query',
                         action='store_true',
                         dest='verbose')
-    parser.add_argument(
-        '-t', help='Show number of VMs created in the last specified hours', action='store', dest='hours')
-    parser.add_argument('-d', '--disk',help= 'List each VM real disk usage on every HV', action='store_true', dest='usage')
 
-    parser.add_argument('-j', '--json', help='Provide output in JSON format', action='store_true', dest='json_output')
+    parser.add_argument('-t',
+                        help='Show number of VMs created in the last specified hours',
+                        action='store',
+                        dest='hours')
+    parser.add_argument('-d', '--disk',
+                        help='List each VM real disk usage on every HV',
+                        action='store_true',
+                        dest='usage')
+
+    parser.add_argument('-j', '--json',
+                        help='Provide output in JSON format',
+                        action='store_true',
+                        dest='json_output')
+
+    parser.add_argument('-w',
+                        help='Select the type of collector you wish to collect all data for',
+                        action='store',
+                        dest='which',
+                        choices=['subnets', 'risky', 'hypervisors'])
+
     args = parser.parse_args()
 
     if args.verbose:
@@ -423,18 +500,18 @@ def main():
 
     # Defying dictionary with the possible collectors and their filters
     collectors = {'servers': {'type': ServerCollector(), 'filters': [
-        args.env, args.sorter or 'usage', args.hours or 24, args.bigger or 0]}, 
-        'hypervisors': {'type': HypervisorCollector(), 'filters': [args.env, args.usage or False]},
-        'risky': {'type': HighRiskCollector(), 'filters':[args.env, args.json_output or False]}, 
+        args.env, args.sorter or 'usage', args.hours or 24, args.bigger or 0]},
+        'hypervisors': {'type': HypervisorCollector(), 'filters': [args.env, args.usage or False, args.json_output or False]},
+        'risky': {'type': HighRiskCollector(), 'filters': [args.env, args.json_output or False]},
         'subnets': {'type': SubnetCollector(), 'filters': [args.env, args.json_output or False]},
-        'all-subnets': {'type': AllSubnetCollector(), 'filters': []},
-        'all-risky': {'type': AllHighRiskCollector(), 'filters': []}}
+        'all': {'type': AllCollector(), 'filters': [args.which, args.usage or False]}}
 
     # Creating a new collector depending on the provided type
     collector = collectors[args.collector]['type']
     # Adding the filters for that particular collector
     filters = (collectors[args.collector]['filters'])
     collector.get_resources(*list(filters))
+
 
 if __name__ == '__main__':
     main()
