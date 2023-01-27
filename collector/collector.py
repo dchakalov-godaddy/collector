@@ -399,7 +399,7 @@ class SubnetCollector(Collector):
                                     total_subnet_disk_usage += float(
                                         current_vm_disk_usage.replace("M", ""))
                     subnet_obj['total_usage'] = f"{round(total_subnet_disk_usage / 1024, 1)}G"
-                    
+
                 subnet_obj['subnet'] = subnet
                 subnet_obj['subnet_id'] = result_subnets[subnet]['id']
                 subnet_obj['network_id'] = result_subnets[subnet]['network_id']
@@ -453,6 +453,101 @@ class SubnetCollector(Collector):
             table.print_table()
 
 
+class VMsPerSubnetCollector(Collector):
+    def get_resources(self, env, json_output):
+        cli = self._get_client(env)
+
+        # Getting a list of all subnets
+        subnets = cli.list_subnets()
+
+        # Getting a list of all servers
+        servers = cli.list_servers(
+            all_projects=True, bare=True, filters={'limit': 1000})
+
+        # Creating an empty result object
+        result_subnets = {}
+
+        # Iterating through all subnets and servers to find which servers use which subnets
+        for sub in subnets:
+            cidr = sub.cidr
+            subnet_id = sub.id
+            network_id = sub.network_id
+            # Checking if subnet key exists in the object and if not creating it
+            if cidr not in result_subnets:
+                result_subnets[cidr] = {}
+                result_subnets[cidr]['id'] = subnet_id
+                result_subnets[cidr]['network_id'] = network_id
+                result_subnets[cidr]['vms'] = []
+                result_subnets[cidr]['hvs'] = []
+            for server in servers:
+                if bool(server.addresses) == True:
+                    network_key = list(server.addresses)[0]
+                    ip = server.addresses[network_key][0]['addr']
+                    # If IP address is in the subnet range we increment the server count
+                    if ipaddress.ip_address(ip) in ipaddress.ip_network(cidr):
+                        result_subnets[cidr]['vms'].append(server)
+
+                        # Collecting the hypervisor the VM is hosted on
+                        server_hypervisor = server.hypervisor_hostname
+                        # Adding the HV if not in the subnet list already
+                        if server_hypervisor not in result_subnets[cidr]['hvs']:
+                            result_subnets[cidr]['hvs'].append(
+                                server_hypervisor)
+
+        headers = ['Subnet', 'Subnet ID',
+                   'Network ID', "VMs count", 'HVs count']
+
+        subnets_data = []
+        for subnet in result_subnets:
+            subnet_obj = {}
+            # Collecting current subnet hypervisors
+            subnet_hvs = result_subnets[subnet]['hvs']
+            # Collecting current subnet servers
+            subnet_vms = result_subnets[subnet]['vms']
+            # Filtering current subnet servers to select only IDs
+            subnet_vms_ids = [vm.id for vm in subnet_vms]
+            # Getting each VM disk usage on the subnet hypervisors
+            total_subnet_disk_usage = 0
+            if len(subnet_hvs) != 0:
+                vm_data = vm_disk_usage(
+                    [hv for hv in subnet_hvs if hv is not None])
+                for vm in vm_data:
+                    if vm in subnet_vms_ids:
+                        current_vm_disk_usage = vm_data[vm]
+                        if 'G' in current_vm_disk_usage:
+                            total_subnet_disk_usage += float(
+                                current_vm_disk_usage.replace("G", "")) * 1024
+                        elif "M" in current_vm_disk_usage:
+                            total_subnet_disk_usage += float(
+                                current_vm_disk_usage.replace("M", ""))
+
+            # subnet_obj['total_usage'] = f"{round(total_subnet_disk_usage / 1024, 1)}G"
+            if round(total_subnet_disk_usage / 1024, 1) > 0:
+                subnet_obj['subnet'] = f"{subnet} - {result_subnets[subnet]['id']} - {round(total_subnet_disk_usage / 1024, 1)}G"
+                # subnet_obj['count'] = len(result_subnets[subnet]['vms'])
+                vm_list = []
+                    # vm.id for vm in result_subnets[subnet]['vms']]
+                for vm in result_subnets[subnet]['vms']:
+                    vm_id = vm.id
+                    vm_hv = vm.hypervisor_hostname
+                    # current_vm_disk_usage = vm_data[vm_id]
+                    if (vm_id in vm_data):
+                        current_vm_disk_usage = vm_data[vm_id]
+                    else: 
+                        current_vm_disk_usage = 0
+                    vm_list.append({'id': vm_id, 'hipervisor':vm_hv, 'usage': current_vm_disk_usage})
+                if len(vm_list) > 0:
+                    subnet_obj['vms_list'] = vm_list
+                # subnet_obj['hypervisors'] = len(result_subnets[subnet]['hvs'])
+                # subnet_obj['hv_list'] = (result_subnets[subnet]['hvs'])
+                subnets_data.append(subnet_obj)
+
+        return (
+            # {env: sorted(subnets_data, key=lambda x: int((x['count'])), reverse=True)}
+            {env: subnets_data}
+            )
+
+
 class AllCollector(Collector):
     def get_resources(self, which, usage):
 
@@ -463,6 +558,8 @@ class AllCollector(Collector):
                 return HighRiskCollector()
             elif which == 'hypervisors':
                 return HypervisorCollector()
+            elif which == 'vms_per_subnet':
+                return VMsPerSubnetCollector()
 
         collector_type = switch(which)
 
@@ -548,7 +645,7 @@ def main():
                         help='Select the type of collector you wish to collect all data for',
                         action='store',
                         dest='which',
-                        choices=['subnets', 'risky', 'hypervisors'])
+                        choices=['subnets', 'risky', 'hypervisors', 'vms_per_subnet'])
 
     args = parser.parse_args()
 
