@@ -18,11 +18,11 @@ from usage import high_risk_hv, vm_disk_usage
 config = openstack.config.loader.OpenStackConfig()
 
 clouds = [
-    'ams_private',
-    'iad_private',
-    'phx_private',
-    'sin_private'
-    # 'ams_ztn'
+    # 'ams_private',
+    # 'iad_private',
+    # 'phx_private',
+    # 'sin_private'
+    'ams_ztn'
 ]
 
 
@@ -399,11 +399,15 @@ class SubnetCollector(Collector):
                                     total_subnet_disk_usage += float(
                                         current_vm_disk_usage.replace("M", ""))
                     subnet_obj['total_usage'] = f"{round(total_subnet_disk_usage / 1024, 1)}G"
-
+                active_vms = 0
+                for vm in result_subnets[subnet]['vms']:
+                    if vm.status == 'ACTIVE':
+                        active_vms += 1
                 subnet_obj['subnet'] = subnet
                 subnet_obj['subnet_id'] = result_subnets[subnet]['id']
                 subnet_obj['network_id'] = result_subnets[subnet]['network_id']
                 subnet_obj['count'] = len(result_subnets[subnet]['vms'])
+                subnet_obj['active'] = active_vms
                 subnet_obj['hypervisors'] = len(result_subnets[subnet]['hvs'])
                 subnets_data.append(subnet_obj)
 
