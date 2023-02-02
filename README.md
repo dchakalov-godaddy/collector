@@ -5,13 +5,14 @@ Tool that gathers data regarding openstack hypervisors and instances. Uses the A
 ## Help menu 
 
 ```bash
+❯ collector --help
 usage: collector.py [-e ENV] [-v --verbose] [-s --sort] [-b] [-t] [-d --disk]
 
 Collects data via OpenStack API
 
 positional arguments:
-  {servers,hypervisors,risky,subnets,all}
-                        Collect data about instances or hypervisors
+  {servers,hypervisors,risky,subnets,vmpersub,vmperhv,all}
+                        Collect data about instances, hypervisors or subnets
 
 optional arguments:
   -h, --help            show this help message and exit
@@ -22,7 +23,7 @@ optional arguments:
   -t HOURS              Show number of VMs created in the last specified hours
   -d, --disk            List each VM real disk usage on every HV
   -j, --json            Provide output in JSON format
-  -w {subnets,risky,hypervisors}
+  -w {subnets,risky,hypervisors,vms_per_subnet}
                         Select the type of collector you wish to collect all data for
 ```
 
@@ -121,7 +122,7 @@ Number of VMs per disk size:
 ## Collecting each VM real disk usage
 
 ```bash
-❯ collector -e ams_private hypervisors -d
+❯ collector -e ams_private vmperhv
 Number of HVs on ams_private: 135
 Number of HVs with 0 running VMs: 40
 Total disk used: 74.43 TB
@@ -148,7 +149,27 @@ Hypervisor: n3plcldhv001-01.prod.ams3.gdg
 +----------------+--------+--------------------------------------+----------------+------------+-------+
 ```
 
-## COllecting data from all clouds
+## Collecting each VM real disk usage per Subnet
+```bash
+❯ collector -e ams_ztn vmpersub
+----------------------------------------------
+Subnet: 10.197.172.0/22 - 35c9c874-02a0-431a-9b35-239223d3ca7e - 22559.2G
++--------------------------------------+----------------------------------+------------+------------+
+|                  ID                  |            Hypervisor            | Disk usage | Created by |
++--------------------------------------+----------------------------------+------------+------------+
+| e74bda51-73e3-4b9e-8231-be7d7f5d3f6c | n3plztncldhv004-25.prod.ams3.gdg |    44G     |  Unknown   |
+| 9eccee98-09a0-4924-87a9-22d5aa936d48 | n3plztncldhv004-25.prod.ams3.gdg |    29G     |  Unknown   |
+| de0d5bff-0e0c-4cce-b7c4-f0951de63417 | n3plztncldhv004-30.prod.ams3.gdg |    58G     |  Unknown   |
+| 5fe98c0b-4bd0-40a5-97cd-e913d4430a9b | n3plztncldhv004-32.prod.ams3.gdg |    85G     |  Unknown   |
+| 2dd40931-8a4c-4533-806b-3dd8d3395290 | n3plztncldhv004-30.prod.ams3.gdg |    376G    |  Unknown   |
+| 4cd821c9-546a-4321-ad35-cd217fa362d8 | n3plztncldhv004-26.prod.ams3.gdg |    345G    |  Unknown   |
+| 981b0570-20c2-4426-b3b5-82d61586618d | n3plztncldhv004-32.prod.ams3.gdg |    73G     |  Unknown   |
+| eb93e212-c71b-4d10-b36a-a244003d0527 | n3plztncldhv004-23.prod.ams3.gdg |    28G     |  Unknown   |
+| b96111f6-51c2-44e1-8025-13c5b0f81ab9 | n3plztncldhv004-11.prod.ams3.gdg |    137G    |  Unknown   |
+```
+
+
+## Collecting data from all clouds by collector type
 
 ```bash
 ❯ collector all -w subnets
