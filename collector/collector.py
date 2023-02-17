@@ -18,11 +18,11 @@ from usage import high_risk_hv, vm_disk_usage
 config = openstack.config.loader.OpenStackConfig()
 
 clouds = [
-    # 'ams_private',
-    # 'iad_private',
-    # 'phx_private',
-    # 'sin_private'
-    'ams_ztn'
+    'ams_private',
+    'iad_private',
+    'phx_private',
+    'sin_private'
+    # 'ams_ztn'
 ]
 
 
@@ -597,7 +597,7 @@ class AllCollector(Collector):
             'risky': HighRiskCollector(),
             'hypervisors': HypervisorCollector(),
             'vms_per_subnet': VMsPerSubnetCollector(),
-            'vm_per_hv': VMsPerHypervisorCollector()
+            'vms_per_hv': VMsPerHypervisorCollector()
         }
 
         collector_type = type[which]
@@ -611,7 +611,7 @@ class AllCollector(Collector):
 
         json_data = []
         for cloud in clouds:
-            if which == 'hypervisors' or which == 'subnets':
+            if which == 'subnets':
                 json_data.append(
                     collector_type.get_resources(cloud, usage, True))
             else:
@@ -686,7 +686,7 @@ def main():
                         help='Select the type of collector you wish to collect all data for',
                         action='store',
                         dest='which',
-                        choices=['subnets', 'risky', 'hypervisors', 'vms_per_subnet'])
+                        choices=['subnets', 'risky', 'hypervisors', 'vms_per_subnet', 'vms_per_hv'])
 
     args = parser.parse_args()
 
