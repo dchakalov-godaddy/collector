@@ -19,9 +19,9 @@ config = openstack.config.loader.OpenStackConfig()
 
 clouds = [
     'ams_private',
-    'iad_private',
-    'phx_private',
-    'sin_private'
+    # 'iad_private',
+    # 'phx_private',
+    # 'sin_private'
     # 'ams_ztn'
 ]
 
@@ -589,6 +589,45 @@ class VMsPerHypervisorCollector(Collector):
             f"Total free space: {round(reduce(lambda a, b: a + b, [h.local_disk_free for h in hypervisors ])/1024, 2)} TB")
 
 
+class ProjectCollector(Collector):
+    def get_resources(self, env, json_output):
+        cli = self._get_client(env)
+        #Getting a list of all servers
+        servers = cli.list_servers(
+        all_projects=True, bare=True, filters={'limit': 1000})
+        # Getting a list of all projects
+        projects = cli.list_projects()
+        # Filtering only the projects that don't have the migrate_to metadata
+        projects_with_no_migrate_meta = [p for p in projects if 'migrate_to' not in p.meta]
+        # Creating an empty data array
+        projects_data = []
+
+        for project in projects_with_no_migrate_meta:
+            # For each project getting only name, id, owning group and list of VMs under that project
+            project_obj = {'name': project.name, 'id': project.id, 'owning_group': project.meta.get('owning_group', 'Unset owning group'), 'vm_list': []}
+            vm_list = [s for s in servers if s.project_id == project.id]
+            
+            for vm in vm_list:
+                # For each VM under the project getting only the important data
+                project_obj['vm_list'].append({'name':vm.name, 'id':vm.id, 'hypervisor':vm.hypervisor_hostname})
+            
+            projects_data.append(project_obj)
+            
+
+        if json_output:
+            return {env: sorted(projects_data, key=lambda x: len(x['vm_list']), reverse=True)}
+        else:
+            headers = ['Name', 'ID', "Hypervisor"]
+
+            for project in projects_data:
+                print('----------------------------------------------')
+                print(f"Project: {project['name']}")
+                if len(project['vm_list']) == 0:
+                    print("No instances under this project")
+                else:
+                    values = [x.values() for x in project['vm_list']]
+                    table = Table(headers, values)
+                    table.print_table()
 class AllCollector(Collector):
     def get_resources(self, which, usage):
 
@@ -597,7 +636,8 @@ class AllCollector(Collector):
             'risky': HighRiskCollector(),
             'hypervisors': HypervisorCollector(),
             'vms_per_subnet': VMsPerSubnetCollector(),
-            'vms_per_hv': VMsPerHypervisorCollector()
+            'vms_per_hv': VMsPerHypervisorCollector(),
+            'projects': ProjectCollector()
         }
 
         collector_type = type[which]
@@ -620,8 +660,7 @@ class AllCollector(Collector):
         current_date_obj = {str(today): json_data}
         current_date_json = json.dumps(
             current_date_obj, default=lambda x: x.__dict__, indent=2)
-        # print(subnets_json)
-        print(current_date_json)
+        print((current_date_json))
 
 
 # Function to remove the usage output into integer (used for sorting purposes)
@@ -645,7 +684,7 @@ def main():
         usage="collector.py [-e ENV] [-v --verbose] [-s --sort] [-b] [-t] [-d --disk]",
     )
 
-    parser.add_argument('collector', choices=['servers', 'hypervisors', 'risky', 'subnets', 'vmpersub', 'vmperhv', 'all'],
+    parser.add_argument('collector', choices=['servers', 'hypervisors', 'risky', 'subnets', 'vmpersub', 'vmperhv', 'projects', 'all'],
                         help='Collect data about instances, hypervisors or subnets',
                         default='all'
                         )
@@ -686,7 +725,7 @@ def main():
                         help='Select the type of collector you wish to collect all data for',
                         action='store',
                         dest='which',
-                        choices=['subnets', 'risky', 'hypervisors', 'vms_per_subnet', 'vms_per_hv'])
+                        choices=['subnets', 'risky', 'hypervisors', 'vms_per_subnet', 'vms_per_hv', 'projects'])
 
     args = parser.parse_args()
 
@@ -704,6 +743,7 @@ def main():
         'subnets': {'type': SubnetCollector(), 'filters': [args.env, args.usage, args.json_output]},
         'vmpersub': {'type': VMsPerSubnetCollector(), 'filters': [args.env, args.json_output]},
         'vmperhv': {'type': VMsPerHypervisorCollector(), 'filters': [args.env, args.json_output]},
+        'projects': {'type': ProjectCollector(), 'filters': [args.env, args.json_output]},
         'all': {'type': AllCollector(), 'filters': [args.which, args.usage]}
     }
 
