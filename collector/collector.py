@@ -276,11 +276,14 @@ class SubnetCollector(Collector):
         servers = cli.list_servers(
             all_projects=True, bare=True, filters={'limit': 1000})
 
+        # Filtering the subnets to get only the once that are not floating 
+        needed_subnets = [s for s in subnets if 'floating' not in s.name]
+
         # Creating an empty result object
         result_subnets = {}
 
         # Iterating through all subnets and servers to find which servers use which subnets
-        for sub in subnets:
+        for sub in needed_subnets:
             cidr = sub.cidr
             subnet_name = sub.name
             subnet_id = sub.id
