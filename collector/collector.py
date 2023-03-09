@@ -276,8 +276,38 @@ class SubnetCollector(Collector):
         servers = cli.list_servers(
             all_projects=True, bare=True, filters={'limit': 1000})
 
-        # Filtering the subnets to get only the once that are not floating 
+        # Getting a list of all networks
+        networks = cli.list_networks()
+
+        # Filtering the subnets to get only the once that are not floating
         needed_subnets = [s for s in subnets if 'floating' not in s.name]
+
+        # Servers mapping:
+        server_map = {
+            'ams_private': 'ams_osng',
+            'iad_private': 'iad_osng',
+            'phx_private': 'phx_osng',
+            'sin_private': 'sin_osng'
+        }
+
+        # Getting destination cloud data
+        dest_cli = self._get_client(server_map[env])
+        dest_servers = dest_cli.list_servers(
+            all_projects=True, bare=True, filters={'limit': 1000})
+
+        # Filtering destination VMs that contain migration metadata
+        dest_servers_with_migration_meta = [
+            s for s in dest_servers if "migration_src" in s.metadata.keys()]
+
+        needed_servers = []
+
+        # Filtering the VMs that contain migration metadata
+        for server in servers:
+            if "migration_dst" in server.metadata.keys():
+                if not any(s.id == server.metadata['migration_dst'] for s in dest_servers_with_migration_meta):
+                    needed_servers.append(server)
+            else:
+                needed_servers.append(server)
 
         # Creating an empty result object
         result_subnets = {}
@@ -288,12 +318,16 @@ class SubnetCollector(Collector):
             subnet_name = sub.name
             subnet_id = sub.id
             network_id = sub.network_id
+            network_name = [n for n in networks if n.id == network_id][0].name
+            network_availability_zone = [
+                n for n in networks if n.id == network_id][0].availability_zones
             # Checking if subnet key exists in the object and if not creating it
             if cidr not in result_subnets:
                 result_subnets[cidr] = {}
                 result_subnets[cidr]['name'] = subnet_name
                 result_subnets[cidr]['id'] = subnet_id
-                result_subnets[cidr]['network_id'] = network_id
+                result_subnets[cidr]['network_name'] = network_name
+                result_subnets[cidr]['network_availability_zone'] = network_availability_zone
                 result_subnets[cidr]['vms'] = []
                 result_subnets[cidr]['hvs'] = []
             for server in servers:
@@ -312,7 +346,7 @@ class SubnetCollector(Collector):
                                 server_hypervisor)
 
         headers = ['Subnet', 'Name', 'Subnet ID',
-                   'Network ID', "VMs count", 'HVs count']
+                   'Network Name', 'Availability zone', "VMs count", 'Active', 'Migrated-B)', 'To be migrated', 'HVs count']
 
         subnets_data = []
         if json_output:
@@ -346,12 +380,18 @@ class SubnetCollector(Collector):
                 # Collecting all active VMs on the subnet
                 active_vms = len(
                     [vm for vm in result_subnets[subnet]['vms'] if vm.status == 'ACTIVE'])
+                migrated_vms = len([vm for vm in result_subnets[subnet]['vms'] if "migration_dst" in vm.metadata.keys()
+                                    and any(s.id == vm.metadata['migration_dst'] for s in dest_servers_with_migration_meta)])
                 subnet_obj['subnet'] = subnet
                 subnet_obj['name'] = result_subnets[subnet]['name']
                 subnet_obj['subnet_id'] = result_subnets[subnet]['id']
-                subnet_obj['network_id'] = result_subnets[subnet]['network_id']
+                subnet_obj['network_name'] = result_subnets[subnet]['network_name']
+                subnet_obj['network_availability_zone'] = result_subnets[subnet]['network_availability_zone']
                 subnet_obj['count'] = len(result_subnets[subnet]['vms'])
                 subnet_obj['active'] = active_vms
+                subnet_obj['migrated-b'] = migrated_vms
+                subnet_obj['to_be_migrated'] = len(
+                    result_subnets[subnet]['vms']) - migrated_vms
                 subnet_obj['hypervisors'] = len(result_subnets[subnet]['hvs'])
                 subnets_data.append(subnet_obj)
 
@@ -361,6 +401,10 @@ class SubnetCollector(Collector):
             print(f"Number of subnets: {len(subnets)}")
 
             for subnet in result_subnets:
+                active_vms = len(
+                [vm for vm in result_subnets[subnet]['vms'] if vm.status == 'ACTIVE'])
+                migrated_vms = len([vm for vm in result_subnets[subnet]['vms'] if "migration_dst" in vm.metadata.keys()
+                                and any(s.id == vm.metadata['migration_dst'] for s in dest_servers_with_migration_meta)])
                 if usage:
                     if "Total usage" not in headers:
                         headers.append('Total usage')
@@ -386,15 +430,19 @@ class SubnetCollector(Collector):
                                         current_vm_disk_usage.replace("M", ""))
 
                     subnets_data.append([subnet, result_subnets[subnet]['name'], result_subnets[subnet]['id'], result_subnets[subnet]
-                                         ['network_id'], len(result_subnets[subnet]['vms']), len(
+                                         ['network_name'], str(result_subnets[subnet]['network_availability_zone']), len(result_subnets[subnet]['vms']), active_vms, migrated_vms, 
+                                         len(result_subnets[subnet]['vms'])-migrated_vms,len(
                                              result_subnets[subnet]['hvs']),
                                          f"{round(total_subnet_disk_usage / 1024, 1)}G"])
                 else:
                     subnets_data.append([subnet, result_subnets[subnet]['name'], result_subnets[subnet]['id'], result_subnets[subnet]
-                                         ['network_id'], len(result_subnets[subnet]['vms']), len(result_subnets[subnet]['hvs'])])
+                                         ['network_name'], str(
+                                             result_subnets[subnet]['network_availability_zone']),
+                                         len(result_subnets[subnet]['vms']), active_vms, migrated_vms, 
+                                         len(result_subnets[subnet]['vms'])-migrated_vms,len(result_subnets[subnet]['hvs'])])
 
             table = Table(headers, sorted(
-                subnets_data, key=lambda x: int(x[4]), reverse=True))
+                subnets_data, key=lambda x: int(x[5]), reverse=True))
             table.print_table()
 
 
@@ -409,6 +457,9 @@ class VMsPerSubnetCollector(Collector):
         servers = cli.list_servers(
             all_projects=True, bare=True, filters={'limit': 1000})
 
+        # Getting a list of all networks
+        networks = cli.list_networks()
+
         # Creating an empty result object
         result_subnets = {}
 
@@ -417,11 +468,12 @@ class VMsPerSubnetCollector(Collector):
             cidr = sub.cidr
             subnet_id = sub.id
             network_id = sub.network_id
+            network_name = [n for n in networks if n.id == network_id][0].name
             # Checking if subnet key exists in the object and if not creating it
             if cidr not in result_subnets:
                 result_subnets[cidr] = {}
                 result_subnets[cidr]['id'] = subnet_id
-                result_subnets[cidr]['network_id'] = network_id
+                result_subnets[cidr]['network_name'] = network_name
                 result_subnets[cidr]['vms'] = []
                 result_subnets[cidr]['hvs'] = []
             for server in servers:
@@ -676,7 +728,6 @@ class VMsWithMultipleFipsCollector(Collector):
             values = [x.values() for x in server_data]
             table = Table(headers, values)
             table.print_table()
-
 
 
 class AllCollector(Collector):
