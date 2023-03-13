@@ -326,8 +326,8 @@ class SubnetCollector(Collector):
                 result_subnets[cidr] = {}
                 result_subnets[cidr]['name'] = subnet_name
                 result_subnets[cidr]['id'] = subnet_id
-                result_subnets[cidr]['network_name'] = network_name
-                result_subnets[cidr]['network_availability_zone'] = network_availability_zone
+                result_subnets[cidr]['network_zone'] = network_name
+                result_subnets[cidr]['availability_zone'] = network_availability_zone
                 result_subnets[cidr]['vms'] = []
                 result_subnets[cidr]['hvs'] = []
             for server in servers:
@@ -385,8 +385,8 @@ class SubnetCollector(Collector):
                 subnet_obj['subnet'] = subnet
                 subnet_obj['name'] = result_subnets[subnet]['name']
                 subnet_obj['subnet_id'] = result_subnets[subnet]['id']
-                subnet_obj['network_name'] = result_subnets[subnet]['network_name']
-                subnet_obj['network_availability_zone'] = result_subnets[subnet]['network_availability_zone']
+                subnet_obj['network_zone'] = result_subnets[subnet]['network_zone']
+                subnet_obj['availability_zone'] = result_subnets[subnet]['availability_zone']
                 subnet_obj['count'] = len(result_subnets[subnet]['vms'])
                 subnet_obj['active'] = active_vms
                 subnet_obj['migrated-b'] = migrated_vms
@@ -430,14 +430,14 @@ class SubnetCollector(Collector):
                                         current_vm_disk_usage.replace("M", ""))
 
                     subnets_data.append([subnet, result_subnets[subnet]['name'], result_subnets[subnet]['id'], result_subnets[subnet]
-                                         ['network_name'], str(result_subnets[subnet]['network_availability_zone']), len(result_subnets[subnet]['vms']), active_vms, migrated_vms, 
+                                         ['network_zone'], str(result_subnets[subnet]['availability_zone']), len(result_subnets[subnet]['vms']), active_vms, migrated_vms, 
                                          len(result_subnets[subnet]['vms'])-migrated_vms,len(
                                              result_subnets[subnet]['hvs']),
                                          f"{round(total_subnet_disk_usage / 1024, 1)}G"])
                 else:
                     subnets_data.append([subnet, result_subnets[subnet]['name'], result_subnets[subnet]['id'], result_subnets[subnet]
-                                         ['network_name'], str(
-                                             result_subnets[subnet]['network_availability_zone']),
+                                         ['network_zone'], str(
+                                             result_subnets[subnet]['availability_zone']),
                                          len(result_subnets[subnet]['vms']), active_vms, migrated_vms, 
                                          len(result_subnets[subnet]['vms'])-migrated_vms,len(result_subnets[subnet]['hvs'])])
 
@@ -473,7 +473,7 @@ class VMsPerSubnetCollector(Collector):
             if cidr not in result_subnets:
                 result_subnets[cidr] = {}
                 result_subnets[cidr]['id'] = subnet_id
-                result_subnets[cidr]['network_name'] = network_name
+                result_subnets[cidr]['network_zone'] = network_name
                 result_subnets[cidr]['vms'] = []
                 result_subnets[cidr]['hvs'] = []
             for server in servers:
