@@ -402,9 +402,9 @@ class SubnetCollector(Collector):
 
             for subnet in result_subnets:
                 active_vms = len(
-                [vm for vm in result_subnets[subnet]['vms'] if vm.status == 'ACTIVE'])
+                    [vm for vm in result_subnets[subnet]['vms'] if vm.status == 'ACTIVE'])
                 migrated_vms = len([vm for vm in result_subnets[subnet]['vms'] if "migration_dst" in vm.metadata.keys()
-                                and any(s.id == vm.metadata['migration_dst'] for s in dest_servers_with_migration_meta)])
+                                    and any(s.id == vm.metadata['migration_dst'] for s in dest_servers_with_migration_meta)])
                 if usage:
                     if "Total usage" not in headers:
                         headers.append('Total usage')
@@ -430,16 +430,18 @@ class SubnetCollector(Collector):
                                         current_vm_disk_usage.replace("M", ""))
 
                     subnets_data.append([subnet, result_subnets[subnet]['name'], result_subnets[subnet]['id'], result_subnets[subnet]
-                                         ['network_zone'], str(result_subnets[subnet]['availability_zone']), len(result_subnets[subnet]['vms']), active_vms, migrated_vms, 
-                                         len(result_subnets[subnet]['vms'])-migrated_vms,len(
+                                         ['network_zone'], str(result_subnets[subnet]['availability_zone']), len(
+                                             result_subnets[subnet]['vms']), active_vms, migrated_vms,
+                                         len(result_subnets[subnet]['vms'])-migrated_vms, len(
                                              result_subnets[subnet]['hvs']),
                                          f"{round(total_subnet_disk_usage / 1024, 1)}G"])
                 else:
                     subnets_data.append([subnet, result_subnets[subnet]['name'], result_subnets[subnet]['id'], result_subnets[subnet]
                                          ['network_zone'], str(
                                              result_subnets[subnet]['availability_zone']),
-                                         len(result_subnets[subnet]['vms']), active_vms, migrated_vms, 
-                                         len(result_subnets[subnet]['vms'])-migrated_vms,len(result_subnets[subnet]['hvs'])])
+                                         len(result_subnets[subnet]['vms']
+                                             ), active_vms, migrated_vms,
+                                         len(result_subnets[subnet]['vms'])-migrated_vms, len(result_subnets[subnet]['hvs'])])
 
             table = Table(headers, sorted(
                 subnets_data, key=lambda x: int(x[5]), reverse=True))
@@ -699,12 +701,19 @@ class VMsWithMultipleFipsCollector(Collector):
         servers = cli.list_servers(
             all_projects=True, bare=True, filters={'limit': 1000})
 
+        ports = cli.list_ports()
+
+        flips = cli.list_floating_ips()
+
+        # print(flips[0])
+
         server_data = []
 
-        headers = ['Name', 'ID', 'Owning group', 'FIPs']
+        headers = ['Name', 'ID', 'Owning group', 'FIPs', 'Port_IPs']
 
         for server in servers:
             if bool(server.addresses) == True:
+                server.ports = []
                 # Getting the network name key
                 network_key = list(server.addresses)[0]
                 # Getting the list of server addresses
@@ -713,14 +722,36 @@ class VMsWithMultipleFipsCollector(Collector):
                 # Checking the count of floating IPs for each VM
                 floating_ips_count = 0
                 floating_ips = []
+                port_ips = []
                 for ip in ips:
                     if (ip['OS-EXT-IPS:type']) == 'floating':
                         floating_ips_count += 1
                         floating_ips.append(ip['addr'])
+
+                        flip_list = [f for f in flips if f['floating_ip_address'] == ip['addr']]
+                        if len(flip_list) > 0:
+                            server.ports.append(flip_list[0].port_id)
+                    # else:
+                    #     fixed_ip = ip['addr']
+                    #     ports = [port for port in ports if port.fixed_ips[0]['ip_address'] == fixed_ip]
+                    #     if len(ports) > 0:
+                    #         allowed_address_pairs = ports[0].allowed_address_pairs
+                    #     else:
+                    #         allowed_address_pairs = []
+
                 # Checking for VMs with more than 1 FIP
-                if floating_ips_count > 1:
+                if len(server.ports) > 0:
+                    for port in server.ports:
+                        if port != None:
+                            current_port = [p for p in ports if p.id == port][0]
+                            allowed_address_pairs = current_port.allowed_address_pairs
+                            if len(allowed_address_pairs) > 1:
+                                for ip in allowed_address_pairs:
+                                    port_ips.append(ip['ip_address'])
+                if floating_ips_count > 1 or len(port_ips):
+                    
                     server_data.append({'name': server.name, 'id': server.id, 'owning_group': server.metadata.get(
-                        'owning_group', 'None'), 'fips': floating_ips})
+                        'owning_group', 'None'), 'fips': floating_ips, 'port_ips': port_ips})
 
         if json_output:
             return {env: server_data}
