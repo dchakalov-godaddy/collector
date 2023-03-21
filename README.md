@@ -208,3 +208,52 @@ Subnet: 10.197.172.0/22 - 35c9c874-02a0-431a-9b35-239223d3ca7e - 22559.2G
 |    hreplha01    | 95d1805c-e7fe-45b0-a5d4-567a9a0bbdde |                 None                |            ['50.62.204.91', '10.22.42.1']           |
 +-----------------+--------------------------------------+-------------------------------------+-----------------------------------------------------+
 ```
+
+
+## Collecting list of Subnets containing VMs with owning provided by user
+
+```bash
+❯ collector -e ams_private group -g "DEV-Private Cloud"
+
+ - Looking for all subnets that have VM with owning group including DEV-Private Cloud in the name...
+ - Found 4 subnets containing VMs with that owning group
+Lising all found subnets:
+------------------------------------
+10.36.28.0/22 - f3072f33-0bad-4f2d-9ed4-769a5cde8aa6 - 1 VMs
++-----------------+--------------------------------------+-------------------------+
+|       Name      |                  ID                  |       Owning group      |
++-----------------+--------------------------------------+-------------------------+
+| n3plztncldcon01 | a6119098-9b25-45fc-a6f0-94245f6c6b87 | 102 - DEV-Private Cloud |
++-----------------+--------------------------------------+-------------------------+
+
+10.30.8.0/22 - 17597ea9-b562-486f-882f-938440538afb - 2 VMs
++-----------------+--------------------------------------+-------------------------+
+|       Name      |                  ID                  |       Owning group      |
++-----------------+--------------------------------------+-------------------------+
+| testvm-b33f1b07 | 6611be28-48d6-4f8f-86fe-25d87a648d12 | 102 - DEV-Private Cloud |
+|   vader-ara-db  | dbfe4f24-9bb0-4a80-b234-e15f01dec229 | 102 - DEV-Private Cloud |
++-----------------+--------------------------------------+-------------------------+
+
+10.36.20.0/22 - a4432946-fe51-44ab-a076-a9e254c85bf0 - 3 VMs
++-----------------+--------------------------------------+---------------------------+
+|       Name      |                  ID                  |        Owning group       |
++-----------------+--------------------------------------+---------------------------+
+|   darin-b2e24   | e518bc4f-370c-47ab-a7e9-8eb8715cfb23 | 12246 - DEV-Private Cloud |
+|  dbing-delme20  | 9c302c3a-6906-45dd-ab21-eba241a227eb |  102 - DEV-Private Cloud  |
+| n3plpubcldcon01 | e462ee84-c404-457e-8814-1e13124f5980 |  102 - DEV-Private Cloud  |
++-----------------+--------------------------------------+---------------------------+
+
+10.30.5.0/24 - 5951609f-221c-4fc8-93fa-6aa6fbe53fd2 - 8 VMs
++----------------+--------------------------------------+-------------------------+
+|      Name      |                  ID                  |       Owning group      |
++----------------+--------------------------------------+-------------------------+
+| rbreker-ws22-3 | 8161c8a6-bbbf-4843-a4ef-c4fbfdb0728d | 102 - DEV-Private Cloud |
+|  rbreker-a8-3  | 0cfc6351-308d-4d81-a0f4-9c21d9d05260 | 102 - DEV-Private Cloud |
+| rbreker-ws22-2 | d85c8c2c-5c89-4b1f-9ae1-0848d65134dd | 102 - DEV-Private Cloud |
+|  rbreker-a8-5  | 015ae05c-38f7-4054-89da-5b59d26aa657 | 102 - DEV-Private Cloud |
+| rbreker-ws22-1 | 6e687a34-9d7e-46ed-bd56-473b5a86616e | 102 - DEV-Private Cloud |
+|  rbreker-a8-1  | a6caeea2-072b-4db6-ad12-d292a7613423 | 102 - DEV-Private Cloud |
+| n3plztncldsg01 | c61be2c7-4801-490c-a082-0d126a48d228 | 102 - DEV-Private Cloud |
+|   vader-ara    | cfc1f7b9-c5b8-4d15-b910-78d11320f5b8 | 102 - DEV-Private Cloud |
++----------------+--------------------------------------+-------------------------+
+```

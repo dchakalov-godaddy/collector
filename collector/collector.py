@@ -279,6 +279,11 @@ class SubnetCollector(Collector):
         # Getting a list of all networks
         networks = cli.list_networks()
 
+        # Getting a list of all projects
+        projects = cli.list_projects()
+
+        return print(projects[0])
+
         # Filtering the subnets to get only the once that are not floating
         needed_subnets = [s for s in subnets if 'floating' not in s.name]
 
@@ -727,7 +732,8 @@ class VMsWithMultipleFipsCollector(Collector):
                         floating_ips_count += 1
                         floating_ips.append(ip['addr'])
 
-                        flip_list = [f for f in flips if f['floating_ip_address'] == ip['addr']]
+                        flip_list = [
+                            f for f in flips if f['floating_ip_address'] == ip['addr']]
                         if len(flip_list) > 0:
                             server.ports.append(flip_list[0].port_id)
 
@@ -735,13 +741,14 @@ class VMsWithMultipleFipsCollector(Collector):
                 if len(server.ports) > 0:
                     for port in server.ports:
                         if port != None:
-                            current_port = [p for p in ports if p.id == port][0]
+                            current_port = [
+                                p for p in ports if p.id == port][0]
                             allowed_address_pairs = current_port.allowed_address_pairs
                             if len(allowed_address_pairs) > 1:
                                 for ip in allowed_address_pairs:
                                     port_ips.append(ip['ip_address'])
                 if floating_ips_count > 1 or len(port_ips):
-                    
+
                     server_data.append({'name': server.name, 'id': server.id, 'owning_group': server.metadata.get(
                         'owning_group', 'None'), 'fips': floating_ips, 'port_ips': port_ips})
 
@@ -751,6 +758,75 @@ class VMsWithMultipleFipsCollector(Collector):
             values = [x.values() for x in server_data]
             table = Table(headers, values)
             table.print_table()
+
+
+class OwningGroupCollector(Collector):
+    def get_resources(self, env, group):
+        cli = self._get_client(env)
+
+        # Getting a list of all subnets
+        subnets = cli.list_subnets()
+        # Getting a list of all servers
+        servers = cli.list_servers(
+            all_projects=True, bare=True, filters={'limit': 1000})
+
+        # Getting a list of all networks
+        networks = cli.list_networks()
+
+        needed_servers = [s for s in servers if group.lower(
+        ) in s.metadata['owning_group'].lower()]
+
+        # Creating an empty result object
+        result_subnets = {}
+
+        # Iterating through all subnets and servers to find which servers use which subnets
+        for sub in subnets:
+            cidr = sub.cidr
+            subnet_id = sub.id
+            network_id = sub.network_id
+            network_name = [n for n in networks if n.id == network_id][0].name
+            # Checking if subnet key exists in the object and if not creating it
+            if cidr not in result_subnets:
+                result_subnets[cidr] = {}
+                result_subnets[cidr]['name'] = sub.cidr
+                result_subnets[cidr]['id'] = subnet_id
+                result_subnets[cidr]['network_zone'] = network_name
+                result_subnets[cidr]['vms'] = []
+                result_subnets[cidr]['hvs'] = []
+            for server in needed_servers:
+                if bool(server.addresses) == True:
+                    network_key = list(server.addresses)[0]
+                    ip = server.addresses[network_key][0]['addr']
+                    # If IP address is in the subnet range we increment the server count
+                    if ipaddress.ip_address(ip) in ipaddress.ip_network(cidr):
+                        result_subnets[cidr]['vms'].append(server)
+
+        needed_subnets = []
+
+        for sub in result_subnets:
+            if len(result_subnets[sub]['vms']) > 0:
+                needed_subnets.append(result_subnets[sub])
+
+        headers = ['Name', 'ID', 'Owning group']
+
+        print("")
+        print(
+            f" - Looking for all subnets that have VM with owning group including {group} in the name...")
+        print(
+            f" - Found {len(needed_subnets)} subnets containing VMs with that owning group")
+        print("Lising all found subnets:")
+        print('------------------------------------')
+        for sub in needed_subnets:
+            print(f"{sub['name']} - {sub['id']} - {len(sub['vms'])} VMs")
+            # print('------------------------------------')
+            server_data = []
+            for vm in sub['vms']:
+                server_data.append({'name': vm.name, 'id': vm.id,
+                                   'owning_group': vm.metadata.get('owning_group', 'None')})
+            values = [x.values() for x in server_data]
+            table = Table(headers, values)
+            table.print_table()
+            print("")
 
 
 class AllCollector(Collector):
@@ -810,7 +886,7 @@ def main():
         usage="collector.py [-e ENV] [-v --verbose] [-s --sort] [-b] [-t] [-d --disk]",
     )
 
-    parser.add_argument('collector', choices=['servers', 'hypervisors', 'risky', 'subnets', 'vmpersub', 'vmperhv', 'projects', 'multifips', 'all'],
+    parser.add_argument('collector', choices=['servers', 'hypervisors', 'risky', 'subnets', 'vmpersub', 'vmperhv', 'projects', 'multifips', 'group', 'all'],
                         help='Collect data about instances, hypervisors or subnets',
                         default='all'
                         )
@@ -852,6 +928,10 @@ def main():
                         action='store',
                         dest='which',
                         choices=['subnets', 'risky', 'hypervisors', 'vms_per_subnet', 'vms_per_hv', 'projects', 'multifips'])
+    parser.add_argument('-g', '--group',
+                        help='Show which subnets this owning group has VMs under',
+                        action='store',
+                        dest='group')
 
     args = parser.parse_args()
 
@@ -871,6 +951,7 @@ def main():
         'vmperhv': {'type': VMsPerHypervisorCollector(), 'filters': [args.env, args.json_output]},
         'projects': {'type': ProjectCollector(), 'filters': [args.env, args.json_output]},
         'multifips': {'type': VMsWithMultipleFipsCollector(), 'filters': [args.env, args.json_output]},
+        'group': {'type': OwningGroupCollector(), 'filters': [args.env, args.group]},
         'all': {'type': AllCollector(), 'filters': [args.which, args.usage]}
     }
 
