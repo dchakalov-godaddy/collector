@@ -493,7 +493,7 @@ class VMsPerSubnetCollector(Collector):
                             result_subnets[cidr]['hvs'].append(
                                 server_hypervisor)
 
-        headers = ['ID', 'Hypervisor', 'Disk usage', "Created by"]
+        headers = ['ID', 'Hypervisor', 'Disk usage', "Created by", 'Zone']
 
         subnets_data = []
 
@@ -529,6 +529,7 @@ class VMsPerSubnetCollector(Collector):
                     vm_id = vm.id
                     vm_hv = vm.hypervisor_hostname
                     vm_metadata = vm.metadata
+                    av_zone = vm['OS-EXT-AZ:availability_zone']
                     # current_vm_disk_usage = vm_data[vm_id]
                     if (vm_id in vm_data):
                         current_vm_disk_usage = vm_data[vm_id]
@@ -536,14 +537,14 @@ class VMsPerSubnetCollector(Collector):
                         current_vm_disk_usage = 0
                     if json_output:
                         vm_list.append({'id': vm_id, 'hypervisor': vm_hv,
-                                        'usage': current_vm_disk_usage, 'metadata': vm_metadata})
+                                        'usage': current_vm_disk_usage, 'metadata': vm_metadata, 'zone': av_zone})
                     else:
                         if 'created_by' in vm_metadata:
                             created_by = vm_metadata['created_by']
                         else:
                             created_by = 'Unknown'
                         vm_list.append(
-                            [vm.id, vm_hv, current_vm_disk_usage, created_by])
+                            [vm.id, vm_hv, current_vm_disk_usage, created_by, av_zone])
                 if len(vm_list) > 0:
                     subnet_obj['vms_list'] = vm_list
                 subnets_data.append(subnet_obj)
@@ -705,8 +706,6 @@ class VMsWithMultipleFipsCollector(Collector):
 
         flips = cli.list_floating_ips()
 
-        # print(flips[0])
-
         server_data = []
 
         headers = ['Name', 'ID', 'Owning group', 'FIPs', 'Port_IPs']
@@ -731,13 +730,6 @@ class VMsWithMultipleFipsCollector(Collector):
                         flip_list = [f for f in flips if f['floating_ip_address'] == ip['addr']]
                         if len(flip_list) > 0:
                             server.ports.append(flip_list[0].port_id)
-                    # else:
-                    #     fixed_ip = ip['addr']
-                    #     ports = [port for port in ports if port.fixed_ips[0]['ip_address'] == fixed_ip]
-                    #     if len(ports) > 0:
-                    #         allowed_address_pairs = ports[0].allowed_address_pairs
-                    #     else:
-                    #         allowed_address_pairs = []
 
                 # Checking for VMs with more than 1 FIP
                 if len(server.ports) > 0:
