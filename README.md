@@ -257,3 +257,35 @@ Lising all found subnets:
 |   vader-ara    | cfc1f7b9-c5b8-4d15-b910-78d11320f5b8 | 102 - DEV-Private Cloud |
 +----------------+--------------------------------------+-------------------------+
 ```
+
+## Validating all projects with "migrate_to" tag that have non existing project IDs on destination cloud
+
+```bash
+❯ collector -e ams_private project_validate
++---------------------+----------------------------------+-----------------------------+----------------------------------+
+|         Name        |                ID                |         Owning Group        |     Set destination project      |
++---------------------+----------------------------------+-----------------------------+----------------------------------+
+|   migration-mysql   | 29c00c937a924c71af7ae8d86cd0e792 |         org-sre-emea        | 63c6b3ce553440f8a13890a1413a6254 |
+| velia-jenkins-nodes | 71fde4229523479e914a66669380f44d | org-velianetinternetdienste | c581e9ca9e994f28a3247d5a0b1f1058 |
++---------------------+----------------------------------+-----------------------------+----------------------------------+
+```
+
+## Collecting a list of all empty projects
+
+```bash
+❯ collector -e ams_private empty_projects
++----------------------------------------+----------------------------------+--------------------------------------+
+|                  Name                  |                ID                |             Owning Group             |
++----------------------------------------+----------------------------------+--------------------------------------+
+|              mrsite-prod               | 0003063fb14140d9b03426253ec3b524 |           org-paragon-sre            |
+|            email_cloud_prod            | 0114f21f33d3424c948204f11fec44f3 |          OPS-Email Services          |
+|         DNS_MYSQL_ORCHESTRATOR         | 01388e039aec4e15903e2fb91ac893f0 |           OPS-Managed DNS            |
+|       nft-hfs-publish-test-ii-11       | 032c09f7e1014133802b5165bff8062b |           DEV-NocturnalFox           |
+|             SSH-JumpBoxes              | 057f2b7155dc4452a267606f8f488d21 |            Dev-Networking            |
+|              nft-m21xd2yv              | 0a809d1dffc94c6e9664a14d6af9534b |           DEV-NocturnalFox           |
+|       nft-hfs-publish-test-ii-18       | 0b516c334d7e464ebc59691cd21b6b7f |           DEV-NocturnalFox           |
+|                testing                 | 0b7040814b37477385200803491872bd |         ENG-Migration-Engine         |
+|               ReachHeg1                | 101b4b6ef0414aeda3bc3c69458a6683 |         ENG-Network Defense          |
+|    org-2ndlevelappwest-team_testing    | 1236b11084744e808e1e090f3db773c5 |       org-2ndlevelappwest-team       |
+|           cloud_security-n3            | 12b3748e89824a73a98ab1bed1f026eb |             ENG-CloudSec             |
+```
