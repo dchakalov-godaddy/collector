@@ -273,6 +273,122 @@ class HighRiskCollector(Collector):
                 print(f"No high risk hypervisors on {env}")
 
 
+class ZoneCollector(Collector):
+    def get_resources(self, env, json_output):
+        cli = self._get_client(env)
+
+        # Getting a list of all subnets
+        subnets = cli.list_subnets()
+        # Getting a list of all servers
+        servers = cli.list_servers(
+            all_projects=True, bare=True, filters={'limit': 1000})
+        active_servers = [s for s in servers if s.status == 'ACTIVE']
+
+        # Getting a list of all projects
+        projects = cli.list_projects()
+
+        # Filtering projects that have "do_not_migrate" tag
+        do_not_migrate_projects = [p.id for p in projects if p.meta.get(
+            'migrate_to') == "do_not_migrate"]
+
+        # Servers mapping:
+        server_map = {
+            'ams_private': 'ams_osng',
+            'iad_private': 'iad_osng',
+            'phx_private': 'phx_osng',
+            'sin_private': 'sin_osng'
+        }
+
+        # Getting destination cloud data
+        dest_cli = self._get_client(server_map[env])
+        dest_servers = dest_cli.list_servers(
+            all_projects=True, bare=True, filters={'limit': 1000})
+
+        # Filtering destination VMs that contain migration metadata
+        dest_servers_with_migration_meta = [
+            s for s in dest_servers if "migration_src" in s.metadata.keys()]
+
+        needed_servers = []
+        # Filtering the subnets to get only the once that are not floating
+        needed_subnets = [s for s in subnets if 'floating' not in s.name]
+
+        # Filtering the VMs that contain migration metadata
+        for server in servers:
+            if "migration_dst" in server.metadata.keys():
+                if not any(s.id == server.metadata['migration_dst'] for s in dest_servers_with_migration_meta):
+                    needed_servers.append(server)
+            else:
+                needed_servers.append(server)
+
+        result_subnets = {}
+
+        for sub in needed_subnets:
+            cidr = sub.cidr
+            subnet_id = sub.id
+
+            if cidr not in result_subnets:
+                result_subnets[cidr] = {}
+                result_subnets[cidr]['id'] = subnet_id
+                result_subnets[cidr]['vms'] = []
+
+            for server in active_servers:
+                if bool(server.addresses) == True:
+                    network_key = list(server.addresses)[0]
+                    ip = server.addresses[network_key][0]['addr']
+                    # If IP address is in the subnet range we increment the server count
+                    if ipaddress.ip_address(ip) in ipaddress.ip_network(cidr):
+                        result_subnets[cidr]['vms'].append(server)
+
+        subnet_data = []
+
+        for subnet in result_subnets:
+            subnet_obj = {}
+            # Collecting current subnet hypervisors
+            subnet_vms = result_subnets[subnet]['vms']
+
+            subnet_obj['subnet'] = f"{subnet} - {result_subnets[subnet]['id']}"
+            zones = []
+            zones_data = []
+            zones_vms = {}
+
+            for server in subnet_vms:
+                zone = server['OS-EXT-AZ:availability_zone']
+                if zone not in zones:
+                    zones.append(zone)
+                    zones_vms[zone] = []
+                    zones_vms[zone].append(server)
+                else:
+                    zones_vms[zone].append(server)
+
+            for zone in zones_vms:
+                vms = zones_vms[zone]
+                count = len(vms)
+                do_not_migrate_vms = len([
+                    vm for vm in vms if vm.project_id in do_not_migrate_projects])
+                migrated_vms = len([vm for vm in vms if "migration_dst" in vm.metadata.keys()
+                                    and any(s.id == vm.metadata['migration_dst'] for s in dest_servers_with_migration_meta)])
+                to_be_migrated = count - do_not_migrate_vms - migrated_vms
+                zones_data.append({'zone': zone, 
+                                   'count': count,
+                                   'migrated': migrated_vms, 
+                                   'do_not_migrate': do_not_migrate_vms,
+                                   'to_be_migrated': to_be_migrated})
+            subnet_obj['zones'] = zones_data
+            subnet_data.append(subnet_obj)
+
+        if json_output:
+            return {env: subnet_data}
+        else:
+            headers = ['Zone', 'Active Count', 'Migrated',
+                       'Do not migrate', 'To be migrated']
+            for subnet in subnet_data:
+                print('----------------------------------------------')
+                print(f"Subnet: {subnet['subnet']}")
+                values = [x.values() for x in subnet['zones']]
+                table = Table(headers, values)
+                table.print_table()
+
+
 class SubnetCollector(Collector):
     def get_resources(self, env, usage, json_output):
         cli = self._get_client(env)
@@ -341,6 +457,7 @@ class SubnetCollector(Collector):
                 result_subnets[cidr]['network_zone'] = network_name
                 result_subnets[cidr]['vms'] = []
                 result_subnets[cidr]['hvs'] = []
+                result_subnets[cidr]['zones'] = []
             for server in servers:
                 if bool(server.addresses) == True:
                     network_key = list(server.addresses)[0]
@@ -356,10 +473,17 @@ class SubnetCollector(Collector):
                             result_subnets[cidr]['hvs'].append(
                                 server_hypervisor)
 
+                        zone = server['OS-EXT-AZ:availability_zone']
+
+                        if zone not in result_subnets[cidr]['zones']:
+                            result_subnets[cidr]['zones'].append(
+                                zone)
+
         headers = ['Subnet', 'Name', 'Subnet ID',
-                   'Network Name', "VMs count", 'Active', 'Migrated', 'Do not migrate', 'To be migrated', 'HVs count']
+                   'Network Name', "VMs count", 'Active', 'Migrated', 'Do not migrate', 'To be migrated', 'HVs count', 'Zone']
 
         subnets_data = []
+
         if json_output:
             for subnet in result_subnets:
                 subnet_obj = {}
@@ -406,6 +530,7 @@ class SubnetCollector(Collector):
                 subnet_obj['to_be_migrated'] = len(
                     result_subnets[subnet]['vms']) - migrated_vms - len(do_not_migrate_vms)
                 subnet_obj['hypervisors'] = len(result_subnets[subnet]['hvs'])
+                subnet_obj['zones'] = result_subnets[subnet]['zones']
                 subnets_data.append(subnet_obj)
 
             return {env: sorted(subnets_data, key=lambda x: int((x['count'])), reverse=True)}
@@ -420,6 +545,17 @@ class SubnetCollector(Collector):
                                     and any(s.id == vm.metadata['migration_dst'] for s in dest_servers_with_migration_meta)])
                 do_not_migrate_vms = [
                     vm for vm in result_subnets[subnet]['vms'] if vm.project_id in do_not_migrate_projects]
+
+                subnet_list = [subnet, result_subnets[subnet]['name'], result_subnets[subnet]['id'], result_subnets[subnet]
+                               ['network_zone'],
+                               len(result_subnets[subnet]['vms']
+                                   ), active_vms, migrated_vms,
+                               len(do_not_migrate_vms),
+                               len(result_subnets[subnet]['vms']) -
+                               migrated_vms - len(do_not_migrate_vms),
+                               len(result_subnets[subnet]['hvs']),
+                               ",".join(result_subnets[subnet]['zones'])]
+
                 if usage:
                     if "Total usage" not in headers:
                         headers.append('Total usage')
@@ -444,19 +580,10 @@ class SubnetCollector(Collector):
                                     total_subnet_disk_usage += float(
                                         current_vm_disk_usage.replace("M", ""))
 
-                    subnets_data.append([subnet, result_subnets[subnet]['name'], result_subnets[subnet]['id'], result_subnets[subnet]
-                                         ['network_zone'], len(
-                                             result_subnets[subnet]['vms']), active_vms, migrated_vms, len(do_not_migrate_vms),
-                                         len(result_subnets[subnet]['vms'])-migrated_vms-len(do_not_migrate_vms), len(
-                                             result_subnets[subnet]['hvs']),
-                                         f"{round(total_subnet_disk_usage / 1024, 1)}G"])
-                else:
-                    subnets_data.append([subnet, result_subnets[subnet]['name'], result_subnets[subnet]['id'], result_subnets[subnet]
-                                         ['network_zone'],
-                                         len(result_subnets[subnet]['vms']
-                                             ), active_vms, migrated_vms,
-                                        len(do_not_migrate_vms),
-                                         len(result_subnets[subnet]['vms'])-migrated_vms - len(do_not_migrate_vms), len(result_subnets[subnet]['hvs'])])
+                    subnet_list.append(
+                        f"{round(total_subnet_disk_usage / 1024, 1)}G")
+
+                subnets_data.append(subnet_list)
 
             table = Table(headers, sorted(
                 subnets_data, key=lambda x: int(x[5]), reverse=True))
@@ -755,15 +882,16 @@ class ProjectValidator(Collector):
         # Getting destination cloud projects
         dst_projects = dest_cli.list_projects()
         dst_project_ids = [p.id for p in dst_projects]
+        dst_project_names = [p.name for p in dst_projects]
 
         projects_data = []
 
         for project in projects:
             if project.meta.get('migrate_to'):
                 if project.meta.get('migrate_to') != 'do_not_migrate':
-                    if project.meta.get('migrate_to') not in dst_project_ids:
+                    if project.meta.get('migrate_to') not in dst_project_ids and project.meta.get('migrate_to') not in dst_project_names:
                         projects_data.append({'name': project.name, 'id': project.id, 'owning_group': self._owning_group_formatter(project.meta.get(
-                            'owning_group', 'Unknown')), 'Set dst project': project.meta.get('migrate_to')})
+                            'owning_group', 'Unknown')), 'set_dst_project': project.meta.get('migrate_to')})
 
         if json_output:
             return {env: projects_data}
@@ -916,7 +1044,8 @@ class AllCollector(Collector):
             'projects': ProjectCollector(),
             'empty_projects': EmptyProjectCollector(),
             'project_validate': ProjectValidator(),
-            'multifips': VMsWithMultipleFipsCollector()
+            'multifips': VMsWithMultipleFipsCollector(),
+            'zones': ZoneCollector()
         }
 
         collector_type = type[which]
@@ -966,7 +1095,7 @@ def main():
     parser.add_argument('collector', choices=['servers', 'hypervisors', 'risky',
                                               'subnets', 'vmpersub', 'vmperhv', 'projects',
                                               'empty_projects', 'multifips', 'group',
-                                              'project_validate', 'all'],
+                                              'project_validate', 'zones', 'all'],
                         help='Collect data about instances, hypervisors or subnets',
                         default='all'
                         )
@@ -1007,7 +1136,9 @@ def main():
                         help='Select the type of collector you wish to collect all data for',
                         action='store',
                         dest='which',
-                        choices=['subnets', 'risky', 'hypervisors', 'vms_per_subnet', 'vms_per_hv', 'projects', 'empty_projects', 'project_validate', 'multifips'])
+                        choices=['subnets', 'risky', 'hypervisors', 'vms_per_subnet', 
+                                 'vms_per_hv', 'projects', 'empty_projects', 
+                                 'project_validate', 'multifips', 'zones'])
     parser.add_argument('-g', '--group',
                         help='Show which subnets this owning group has VMs under',
                         action='store',
@@ -1034,6 +1165,7 @@ def main():
         'project_validate': {'type': ProjectValidator(), 'filters': [args.env, args.json_output]},
         'multifips': {'type': VMsWithMultipleFipsCollector(), 'filters': [args.env, args.json_output]},
         'group': {'type': OwningGroupCollector(), 'filters': [args.env, args.group]},
+        'zones': {'type': ZoneCollector(), 'filters': [args.env, args.json_output]},
         'all': {'type': AllCollector(), 'filters': [args.which, args.usage]}
     }
 
