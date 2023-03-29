@@ -18,10 +18,10 @@ from usage import high_risk_hv, vm_disk_usage
 config = openstack.config.loader.OpenStackConfig()
 
 clouds = [
-    # 'ams_private',
-    # 'iad_private',
+    'ams_private',
+    'iad_private',
     'phx_private',
-    # 'sin_private'
+    'sin_private'
     # 'ams_ztn'
 ]
 
@@ -396,17 +396,14 @@ class ZoneCollector(Collector):
                 table.print_table()
 
 
-class CombinedZoneCollectgor(Collector):
+class CombinedZoneCollector(Collector):
     def get_resources(self, env, json_output):
         cli = self._get_client(env)
 
-        # Getting a list of all subnets
-        subnets = cli.list_subnets()
         # Getting a list of all servers
         servers = cli.list_servers(
             all_projects=True, bare=True, filters={'limit': 1000})
-        active_servers = [s for s in servers if s.status == 'ACTIVE']
-
+        
         # Getting a list of all projects
         projects = cli.list_projects()
 
@@ -442,31 +439,37 @@ class CombinedZoneCollectgor(Collector):
 
         for server in servers:
             zone = server['OS-EXT-AZ:availability_zone']
-            if zone not in zones:
-                zones.append(zone)
-                zones_vms[zone] = []
-                zones_vms[zone].append(server)
-            else:
-                zones_vms[zone].append(server)
+            if 'gen' not in zone:
+                if env == 'sin_private' and 'prd' in zone:
+                    continue
+                else:
+                    if zone not in zones:
+                        zones.append(zone)
+                        zones_vms[zone] = []
+                        zones_vms[zone].append(server)
+                    else:
+                        zones_vms[zone].append(server)
 
         for zone in zones_vms:
             vms = zones_vms[zone]
             active_vms = [vm for vm in vms if vm.status == 'ACTIVE']
-            migrated = len([vm for vm in active_vms if "migration_dst" in vm.metadata.keys()
-                            and any(s.id == vm.metadata['migration_dst'] for s in dest_servers_with_migration_meta)])
+            migrated_inactive = len(
+                [vm for vm in vms if vm.status != 'ACTIVE'])
+            migrated_active = len([vm for vm in active_vms if "migration_dst" in vm.metadata.keys()
+                                   and any(s.id == vm.metadata['migration_dst'] for s in dest_servers_with_migration_meta)])
             do_not_migrate_vms = len([
                 vm for vm in active_vms if vm.project_id in do_not_migrate_projects])
             unlinked_vms = len([
                 vm for vm in active_vms if vm.project_id in projects_with_no_migrate_meta])
-            to_be_migrated = len(active_vms) - migrated - \
+            to_be_migrated = len(active_vms) - migrated_active - \
                 do_not_migrate_vms - unlinked_vms
-            result_zones.append({'zone': zone, 'count': len(active_vms), 'migrated': migrated,
+            result_zones.append({'zone': zone, 'count': len(active_vms), 'migrated_inactive': migrated_inactive, 'migrated_active': migrated_active,
                                 'do_not_migrate': do_not_migrate_vms, 'unlinked': unlinked_vms, 'to_be_migrated': to_be_migrated})
 
         if json_output:
             return {env: result_zones}
         else:
-            headers = ['Zone', 'Count', 'Migrated',
+            headers = ['Zone', 'Count', 'Migrated Inactive', 'Migrated Active',
                        'Do not migrate', 'Unlinked', 'To be migrated']
             values = [x.values() for x in result_zones]
             table = Table(headers, values)
@@ -1171,7 +1174,7 @@ class AllCollector(Collector):
             'project_validate': ProjectValidator(),
             'multifips': VMsWithMultipleFipsCollector(),
             'zones': ZoneCollector(),
-            'combined_zones': CombinedZoneCollectgor()
+            'combined_zones': CombinedZoneCollector()
         }
 
         collector_type = type[which]
@@ -1297,7 +1300,7 @@ def main():
         'group': {'type': OwningGroupCollector(), 'filters': [args.env, args.group]},
         'zones': {'type': ZoneCollector(), 'filters': [args.env, args.json_output]},
         'unlinked': {'type': UnlinkedCollector(), 'filters': [args.env, args.zone]},
-        'combined_zones': {'type': CombinedZoneCollectgor(), 'filters': [args.env, args.json_output]},
+        'combined_zones': {'type': CombinedZoneCollector(), 'filters': [args.env, args.json_output]},
         'all': {'type': AllCollector(), 'filters': [args.which, args.usage]}
     }
 
