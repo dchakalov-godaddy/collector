@@ -18,10 +18,10 @@ from usage import high_risk_hv, vm_disk_usage
 config = openstack.config.loader.OpenStackConfig()
 
 clouds = [
-    # 'ams_private',
-    # 'iad_private',
+    'ams_private',
+    'iad_private',
     'phx_private',
-    # 'sin_private'
+    'sin_private'
     # 'ams_ztn'
 ]
 
