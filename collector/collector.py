@@ -453,10 +453,11 @@ class CombinedZoneCollector(Collector):
         for zone in zones_vms:
             vms = zones_vms[zone]
             active_vms = [vm for vm in vms if vm.status == 'ACTIVE']
-            migrated_inactive = len(
-                [vm for vm in vms if vm.status != 'ACTIVE'])
-            migrated_active = len([vm for vm in active_vms if "migration_dst" in vm.metadata.keys()
+            migrated = ([vm for vm in vms if "migration_dst" in vm.metadata.keys()
                                    and any(s.id == vm.metadata['migration_dst'] for s in dest_servers_with_migration_meta)])
+            migrated_active = len([vm for vm in migrated if vm.status == 'ACTIVE'])
+            migrated_inactive = len([vm for vm in migrated if vm.status != 'ACTIVE'])
+
             do_not_migrate_vms = len([
                 vm for vm in active_vms if vm.project_id in do_not_migrate_projects])
             unlinked_vms = len([
