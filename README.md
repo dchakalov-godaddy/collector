@@ -289,3 +289,22 @@ Lising all found subnets:
 |    org-2ndlevelappwest-team_testing    | 1236b11084744e808e1e090f3db773c5 |       org-2ndlevelappwest-team       |
 |           cloud_security-n3            | 12b3748e89824a73a98ab1bed1f026eb |             ENG-CloudSec             |
 ```
+
+## Collecting list of unlinked VMs per availability zone
+
+```bash
+❯ collector -e ams_private unlinked -z ams-private-prd-zone-1
++-----------------+--------------------------------------+----------------------------------+
+|       Name      |                  ID                  |             Project              |
++-----------------+--------------------------------------+----------------------------------+
+|    n3plppp-a    | 9e4d8390-a946-4f23-917e-2c991233c1bf | 5c9481c450b7458591064924ce877b55 |
+|    n3slppp-b    | 023f1f5d-4a7a-48c6-b86a-9dd40de2e7b4 | fa0ae9203d6f4d9288dbae9b31874ea4 |
+|    n3dlppp-b    | b53cf032-2fb8-4270-a1c9-fbfd69d4fe03 | 4852b5fc8ca148e484768b875889db10 |
+|    n3dlotrs-b   | 5865f4f4-fb6c-4b13-b092-50ed6b2e669b | 4852b5fc8ca148e484768b875889db10 |
+|    n3sls4y-b    | 69286d74-f8e9-406c-a998-8fd8e8f9b262 | fa0ae9203d6f4d9288dbae9b31874ea4 |
+|    n3dls4y-b    | ea4919e4-96d3-4fe8-a790-fb15319d305c | 4852b5fc8ca148e484768b875889db10 |
+|    n3dltest-b   | 84b34273-826e-41c3-8e75-e80e4a1add90 | 4852b5fc8ca148e484768b875889db10 |
+|   phousley-mig  | 680cf314-92bc-46ad-9fb5-503e1c43b84c | fd20e94182164c9fa5e2fd2163629a96 |
+|     jsink-n3    | d5ef0d9f-7efa-4933-8a60-07d8672e4839 | 66d91e9eb0264b1ba1e8ee3839604be2 |
+|  n3plcompiler04 | eee1977d-8a49-4d3f-8a11-2b2803521187 | 1aea1625bf0245ea8db4ba30c01873b6 |
+```
