@@ -369,14 +369,18 @@ class ZoneCollector(Collector):
                 count = len(vms)
                 do_not_migrate_vms = len([
                     vm for vm in vms if vm.project_id in do_not_migrate_projects])
-                migrated_vms = len([vm for vm in vms if "migration_dst" in vm.metadata.keys()
+                migrated_vms = ([vm for vm in vms if "migration_dst" in vm.metadata.keys()
                                     and any(s.id == vm.metadata['migration_dst'] for s in dest_servers_with_migration_meta)])
+                print(migrated_vms)
+                migrated_active = len([vm for vm in migrated_vms if vm.status == 'ACTIVE'])
+                migrated_inactive = len([vm for vm in migrated_vms if vm.status != 'ACTIVE'])
                 unlinked_vms = len(
                     [vm for vm in vms if vm.project_id in projects_with_no_migrate_meta])
-                to_be_migrated = count - do_not_migrate_vms - migrated_vms - unlinked_vms
+                to_be_migrated = count - do_not_migrate_vms - unlinked_vms
                 zones_data.append({'zone': zone,
                                    'count': count,
-                                   'migrated': migrated_vms,
+                                   'migrated_active': migrated_active,
+                                   'migrated_inactive': migrated_inactive,
                                    'do_not_migrate': do_not_migrate_vms,
                                    'unlinked': unlinked_vms,
                                    'to_be_migrated': to_be_migrated})
@@ -386,7 +390,7 @@ class ZoneCollector(Collector):
         if json_output:
             return {env: subnet_data}
         else:
-            headers = ['Zone', 'Active Count', 'Migrated',
+            headers = ['Zone', 'Active Count', 'Migrated Active', 'Migrated Inactive',
                        'Do not migrate', 'Unlinked', 'To be migrated']
             for subnet in subnet_data:
                 print('----------------------------------------------')
@@ -403,7 +407,7 @@ class CombinedZoneCollector(Collector):
         # Getting a list of all servers
         servers = cli.list_servers(
             all_projects=True, bare=True, filters={'limit': 1000})
-        
+
         # Getting a list of all projects
         projects = cli.list_projects()
 
@@ -454,15 +458,17 @@ class CombinedZoneCollector(Collector):
             vms = zones_vms[zone]
             active_vms = [vm for vm in vms if vm.status == 'ACTIVE']
             migrated = ([vm for vm in vms if "migration_dst" in vm.metadata.keys()
-                                   and any(s.id == vm.metadata['migration_dst'] for s in dest_servers_with_migration_meta)])
-            migrated_active = len([vm for vm in migrated if vm.status == 'ACTIVE'])
-            migrated_inactive = len([vm for vm in migrated if vm.status != 'ACTIVE'])
+                         and any(s.id == vm.metadata['migration_dst'] for s in dest_servers_with_migration_meta)])
+            migrated_active = len(
+                [vm for vm in migrated if vm.status == 'ACTIVE'])
+            migrated_inactive = len(
+                [vm for vm in migrated if vm.status != 'ACTIVE'])
 
             do_not_migrate_vms = len([
                 vm for vm in active_vms if vm.project_id in do_not_migrate_projects])
             unlinked_vms = len([
                 vm for vm in active_vms if vm.project_id in projects_with_no_migrate_meta])
-            to_be_migrated = len(active_vms) - migrated_active - \
+            to_be_migrated = len(active_vms) - \
                 do_not_migrate_vms - unlinked_vms
             result_zones.append({'zone': zone, 'count': len(active_vms), 'migrated_inactive': migrated_inactive, 'migrated_active': migrated_active,
                                 'do_not_migrate': do_not_migrate_vms, 'unlinked': unlinked_vms, 'to_be_migrated': to_be_migrated})
@@ -576,121 +582,72 @@ class SubnetCollector(Collector):
                                         zone)
 
         headers = ['Subnet', 'Name', 'Subnet ID',
-                   'Network Name', "VMs count", 'Active', 'Migrated', 'Do not migrate', 'Unlinked', 'To be migrated', 'HVs count', 'Zone']
+                   'Network Name', "VMs count", 'Active', 'Migrated Active', 'Migrated Inactive', 'Do not migrate', 'Unlinked', 'To be migrated', 'HVs count', 'Zone']
 
         subnets_data = []
 
-        if json_output:
-            for subnet in result_subnets:
-                subnet_obj = {}
-                if usage:
-                    if "Total usage" not in headers:
-                        headers.append('Total usage')
-                    # Collecting current subnet hypervisors
-                    subnet_hvs = result_subnets[subnet]['hvs']
-                    # Collecting current subnet servers
-                    subnet_vms = [vm for vm in result_subnets[subnet]
-                                  ['vms'] if vm.status == 'ACTIVE']
-                    # Filtering current subnet servers to select only IDs
-                    subnet_vms_ids = [vm.id for vm in subnet_vms]
-                    # Getting each VM disk usage on the subnet hypervisors
-                    total_subnet_disk_usage = 0
-                    if len(subnet_hvs) != 0:
-                        vm_data = vm_disk_usage(
-                            [hv for hv in subnet_hvs if hv is not None])
-                        for vm in vm_data:
-                            if vm in subnet_vms_ids:
-                                current_vm_disk_usage = vm_data[vm]
-                                if 'G' in current_vm_disk_usage:
-                                    total_subnet_disk_usage += float(
-                                        current_vm_disk_usage.replace("G", "")) * 1024
-                                elif "M" in current_vm_disk_usage:
-                                    total_subnet_disk_usage += float(
-                                        current_vm_disk_usage.replace("M", ""))
-                    subnet_obj['total_usage'] = f"{round(total_subnet_disk_usage / 1024, 1)}G"
-
-                # Collecting all active VMs on the subnet
-                active_vms = [vm for vm in result_subnets[subnet]
+        for subnet in result_subnets:
+            subnet_obj = {}
+            if usage:
+                headers.append('Total usage')
+                if "Total usage" not in headers:
+                    headers.append('Total usage')
+                # Collecting current subnet hypervisors
+                subnet_hvs = result_subnets[subnet]['hvs']
+                # Collecting current subnet servers
+                subnet_vms = [vm for vm in result_subnets[subnet]
                               ['vms'] if vm.status == 'ACTIVE']
-                migrated_vms = len([vm for vm in active_vms if "migration_dst" in vm.metadata.keys()
-                                    and any(s.id == vm.metadata['migration_dst'] for s in dest_servers_with_migration_meta)])
-                do_not_migrate_vms = [
-                    vm for vm in active_vms if vm.project_id in do_not_migrate_projects]
-                unlinked_vms = [
-                    vm for vm in active_vms if vm.project_id in projects_with_no_migrate_meta]
-                subnet_obj['subnet'] = subnet
-                subnet_obj['name'] = result_subnets[subnet]['name']
-                subnet_obj['subnet_id'] = result_subnets[subnet]['id']
-                subnet_obj['network_zone'] = result_subnets[subnet]['network_zone']
-                subnet_obj['count'] = len(result_subnets[subnet]['vms'])
-                subnet_obj['active'] = len(active_vms)
-                subnet_obj['migrated'] = migrated_vms
-                subnet_obj['do_not_migrate'] = len(do_not_migrate_vms)
-                subnet_obj['unlinked'] = len(unlinked_vms)
-                subnet_obj['to_be_migrated'] = len(
-                    active_vms) - migrated_vms - len(do_not_migrate_vms) - len(unlinked_vms)
-                subnet_obj['hypervisors'] = len(result_subnets[subnet]['hvs'])
-                subnet_obj['zones'] = result_subnets[subnet]['zones']
-                subnets_data.append(subnet_obj)
+                # Filtering current subnet servers to select only IDs
+                subnet_vms_ids = [vm.id for vm in subnet_vms]
+                # Getting each VM disk usage on the subnet hypervisors
+                total_subnet_disk_usage = 0
+                if len(subnet_hvs) != 0:
+                    vm_data = vm_disk_usage(
+                        [hv for hv in subnet_hvs if hv is not None])
+                    for vm in vm_data:
+                        if vm in subnet_vms_ids:
+                            current_vm_disk_usage = vm_data[vm]
+                            if 'G' in current_vm_disk_usage:
+                                total_subnet_disk_usage += float(
+                                    current_vm_disk_usage.replace("G", "")) * 1024
+                            elif "M" in current_vm_disk_usage:
+                                total_subnet_disk_usage += float(
+                                    current_vm_disk_usage.replace("M", ""))
+                subnet_obj['total_usage'] = f"{round(total_subnet_disk_usage / 1024, 1)}G"
 
+            # Collecting all active VMs on the subnet
+            active_vms = [vm for vm in result_subnets[subnet]
+                          ['vms'] if vm.status == 'ACTIVE']
+            migrated_vms = ([vm for vm in result_subnets[subnet]['vms'] if "migration_dst" in vm.metadata.keys()
+                             and any(s.id == vm.metadata['migration_dst'] for s in dest_servers_with_migration_meta)])
+            migrated_active = len([vm for vm in migrated_vms if vm.status == 'ACTIVE'])
+            migrated_inactive = len([vm for vm in migrated_vms if vm.status != 'ACTIVE'])
+            do_not_migrate_vms = [
+                vm for vm in active_vms if vm.project_id in do_not_migrate_projects]
+            unlinked_vms = [
+                vm for vm in active_vms if vm.project_id in projects_with_no_migrate_meta]
+            subnet_obj['subnet'] = subnet
+            subnet_obj['name'] = result_subnets[subnet]['name']
+            subnet_obj['subnet_id'] = result_subnets[subnet]['id']
+            subnet_obj['network_zone'] = result_subnets[subnet]['network_zone']
+            subnet_obj['count'] = len(result_subnets[subnet]['vms'])
+            subnet_obj['active'] = len(active_vms)
+            subnet_obj['migrated_active'] = migrated_active
+            subnet_obj['migrated_inactive'] = migrated_inactive
+            subnet_obj['do_not_migrate'] = len(do_not_migrate_vms)
+            subnet_obj['unlinked'] = len(unlinked_vms)
+            subnet_obj['to_be_migrated'] = len(
+                active_vms) - len(do_not_migrate_vms) - len(unlinked_vms)
+            subnet_obj['hypervisors'] = len(result_subnets[subnet]['hvs'])
+            subnet_obj['zones'] = result_subnets[subnet]['zones']
+            subnets_data.append(subnet_obj)
+
+        if json_output:
             return {env: sorted(subnets_data, key=lambda x: int((x['count'])), reverse=True)}
         else:
-            print(env)
-            print(f"Number of subnets: {len(subnets)}")
-
-            for subnet in result_subnets:
-                active_vms = [vm for vm in result_subnets[subnet]
-                              ['vms'] if vm.status == 'ACTIVE']
-                migrated_vms = len([vm for vm in active_vms if "migration_dst" in vm.metadata.keys()
-                                    and any(s.id == vm.metadata['migration_dst'] for s in dest_servers_with_migration_meta)])
-                do_not_migrate_vms = [
-                    vm for vm in active_vms if vm.project_id in do_not_migrate_projects]
-                unlinked_vms = [
-                    vm for vm in active_vms if vm.project_id in projects_with_no_migrate_meta]
-
-                subnet_list = [subnet, result_subnets[subnet]['name'], result_subnets[subnet]['id'], result_subnets[subnet]
-                               ['network_zone'],
-                               len(result_subnets[subnet]['vms']
-                                   ), len(active_vms), migrated_vms,
-                               len(do_not_migrate_vms),
-                               len(unlinked_vms),
-                               len(active_vms) -
-                               migrated_vms -
-                               len(do_not_migrate_vms) - len(unlinked_vms),
-                               len(result_subnets[subnet]['hvs']),
-                               ",".join(result_subnets[subnet]['zones'])]
-
-                if usage:
-                    if "Total usage" not in headers:
-                        headers.append('Total usage')
-                    # Collecting current subnet hypervisors
-                    subnet_hvs = result_subnets[subnet]['hvs']
-                    # Collecting current subnet servers
-                    subnet_vms = result_subnets[subnet]['vms']
-                    # Filtering current subnet servers to select only IDs
-                    subnet_vms_ids = [vm.id for vm in subnet_vms]
-                    # Getting each VM disk usage on the subnet hypervisors
-                    total_subnet_disk_usage = 0
-                    if len(subnet_hvs) != 0:
-                        vm_data = vm_disk_usage(
-                            [hv for hv in subnet_hvs if hv is not None])
-                        for vm in vm_data:
-                            if vm in subnet_vms_ids:
-                                current_vm_disk_usage = vm_data[vm]
-                                if 'G' in current_vm_disk_usage:
-                                    total_subnet_disk_usage += float(
-                                        current_vm_disk_usage.replace("G", "")) * 1024
-                                elif "M" in current_vm_disk_usage:
-                                    total_subnet_disk_usage += float(
-                                        current_vm_disk_usage.replace("M", ""))
-
-                    subnet_list.append(
-                        f"{round(total_subnet_disk_usage / 1024, 1)}G")
-
-                subnets_data.append(subnet_list)
-
-            table = Table(headers, sorted(
-                subnets_data, key=lambda x: int(x[5]), reverse=True))
+            values = [x.values() for x in sorted(
+                subnets_data, key=lambda x: int(x['to_be_migrated']), reverse=True)]
+            table = Table(headers, values)
             table.print_table()
 
 
