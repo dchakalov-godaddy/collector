@@ -5,6 +5,8 @@ import datetime
 import ipaddress
 import json
 import math
+import os
+import csv
 import sys
 from datetime import date, datetime, timedelta, timezone
 from functools import reduce
@@ -370,10 +372,12 @@ class ZoneCollector(Collector):
                 do_not_migrate_vms = len([
                     vm for vm in vms if vm.project_id in do_not_migrate_projects])
                 migrated_vms = ([vm for vm in vms if "migration_dst" in vm.metadata.keys()
-                                    and any(s.id == vm.metadata['migration_dst'] for s in dest_servers_with_migration_meta)])
+                                 and any(s.id == vm.metadata['migration_dst'] for s in dest_servers_with_migration_meta)])
                 print(migrated_vms)
-                migrated_active = len([vm for vm in migrated_vms if vm.status == 'ACTIVE'])
-                migrated_inactive = len([vm for vm in migrated_vms if vm.status != 'ACTIVE'])
+                migrated_active = len(
+                    [vm for vm in migrated_vms if vm.status == 'ACTIVE'])
+                migrated_inactive = len(
+                    [vm for vm in migrated_vms if vm.status != 'ACTIVE'])
                 unlinked_vms = len(
                     [vm for vm in vms if vm.project_id in projects_with_no_migrate_meta])
                 to_be_migrated = count - do_not_migrate_vms - unlinked_vms
@@ -620,8 +624,10 @@ class SubnetCollector(Collector):
                           ['vms'] if vm.status == 'ACTIVE']
             migrated_vms = ([vm for vm in result_subnets[subnet]['vms'] if "migration_dst" in vm.metadata.keys()
                              and any(s.id == vm.metadata['migration_dst'] for s in dest_servers_with_migration_meta)])
-            migrated_active = len([vm for vm in migrated_vms if vm.status == 'ACTIVE'])
-            migrated_inactive = len([vm for vm in migrated_vms if vm.status != 'ACTIVE'])
+            migrated_active = len(
+                [vm for vm in migrated_vms if vm.status == 'ACTIVE'])
+            migrated_inactive = len(
+                [vm for vm in migrated_vms if vm.status != 'ACTIVE'])
             do_not_migrate_vms = [
                 vm for vm in active_vms if vm.project_id in do_not_migrate_projects]
             unlinked_vms = [
@@ -1118,6 +1124,110 @@ class UnlinkedCollector(Collector):
         table.print_table()
 
 
+class SubnetSvcCollector(Collector):
+    def get_resources(self, env, subnet, svc_output):
+        cli = self._get_client(env)
+        servers = cli.list_servers(
+            all_projects=True, bare=True, filters={'limit': 1000})
+        
+        projects = cli.list_projects()
+
+        def filter_projects():
+            filtered_projects = []
+            for project in projects:
+                if project.meta.get('migrate_to'):
+                    if project.meta.get('migrate_to') != 'do_not_migrate':
+                        filtered_projects.append(project)
+            return filtered_projects
+        filtered_projects = filter_projects()
+
+        def get_dst_project(server):
+            project =  [p for p in filtered_projects if p.id == server.project_id]
+            if len(project) == 0:
+                return None
+            else:
+                return project[0].meta['migrate_to']
+
+
+        def get_filtered_instances():
+            filtered_instances = []
+            for instance in servers:
+                if instance.status != 'ACTIVE':
+                    continue
+                if not get_dst_project(instance):
+                    continue
+                filtered_instances.append(instance)
+
+            # filtered_instances = [instance for instance in filtered_instances if instance.addresses]
+            return filtered_instances
+        
+        def get_subnet():
+            return cli.get_subnet(subnet)
+
+        def get_initial_ping(ip):
+            try:
+                response = os.system(f"ping -c 1 -t 3 -n -q {ip} > /dev/null")
+                if response == 0:
+                    return "Success"
+                else:
+                    return "Failed"
+            except:
+                return "Failed"
+
+        def get_floating_ips(server):
+            ips = []
+            floating_ips = cli.list_floating_ips({'port_id': cli.list_ports({'device_id': server.id})[0]['id']})
+            
+            for ip in floating_ips:
+                ips.append(ip.floating_ip_address)
+
+            if len(ips) > 0:
+                return ','.join(ips)
+            else:
+                return ''
+           
+
+        def generate_output(svc_output):
+            subnet = get_subnet()
+            instances = get_filtered_instances()
+            table_data = []
+
+            field_names = ['vm.id', 'vm.name', 'vm.project_id', 'dst_project', 'fip', 'initial_ping']
+
+            with open(f"vm_per_subnet-{subnet.id}.csv", mode='w', newline='') as f:
+                writer = csv.DictWriter(f, fieldnames=field_names)
+                writer.writeheader()
+
+                for instance in instances:
+                    for address in instance.addresses.values():
+                        for address_detail in address:
+                            ip = address_detail['addr']
+                            if ipaddress.ip_address(ip) in ipaddress.ip_network(subnet.cidr):
+                                row = {
+                                    'vm.id': instance.id,
+                                    'vm.name': instance.name,
+                                    'vm.project_id': instance.project_id,
+                                    'dst_project': get_dst_project(instance),
+                                    'fip': get_floating_ips(instance),
+                                    'initial_ping': get_initial_ping(ip)
+                                }
+                                if svc_output:
+                                    writer.writerow(row)
+                                else:
+                                    table_data.append([instance.id,
+                                                       instance.name,
+                                                       instance.project_id,
+                                                       get_dst_project(instance),
+                                                       get_floating_ips(instance), 
+                                                       get_initial_ping(ip)])
+
+            if not svc_output:
+                table = Table(field_names, table_data)
+                table.print_table()
+
+        generate_output(svc_output)
+
+
 class AllCollector(Collector):
     def get_resources(self, which, usage):
 
@@ -1182,7 +1292,7 @@ def main():
     parser.add_argument('collector', choices=['servers', 'hypervisors', 'risky',
                                               'subnets', 'vmpersub', 'vmperhv', 'projects',
                                               'empty_projects', 'multifips', 'group',
-                                              'project_validate', 'zones', 'unlinked', 'combined_zones', 'all'],
+                                              'project_validate', 'zones', 'unlinked', 'combined_zones', 'svcsubnet', 'all'],
                         help='Collect data about instances, hypervisors or subnets',
                         default='all'
                         )
@@ -1234,6 +1344,14 @@ def main():
                         help='Provide AV zone to list all unlinked VMs under',
                         action='store',
                         dest='zone')
+    parser.add_argument('--subnet',
+                        help='Provide Subnet to generate list all instances under that subnet',
+                        action='store',
+                        dest='subnet')
+    parser.add_argument('--svc',
+                        help='Write to svc file',
+                        action='store_true',
+                        dest='svc_output', default=False)
 
     args = parser.parse_args()
 
@@ -1259,9 +1377,10 @@ def main():
         'zones': {'type': ZoneCollector(), 'filters': [args.env, args.json_output]},
         'unlinked': {'type': UnlinkedCollector(), 'filters': [args.env, args.zone]},
         'combined_zones': {'type': CombinedZoneCollector(), 'filters': [args.env, args.json_output]},
+        'svcsubnet': {'type': SubnetSvcCollector(), 'filters': [args.env, args.subnet, args.svc_output]},
         'all': {'type': AllCollector(), 'filters': [args.which, args.usage]}
     }
-
+    
     # Creating a new collector depending on the provided type
     collector = collectors[args.collector]['type']
     # Adding the filters for that particular collector

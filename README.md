@@ -308,3 +308,25 @@ Lising all found subnets:
 |     jsink-n3    | d5ef0d9f-7efa-4933-8a60-07d8672e4839 | 66d91e9eb0264b1ba1e8ee3839604be2 |
 |  n3plcompiler04 | eee1977d-8a49-4d3f-8a11-2b2803521187 | 1aea1625bf0245ea8db4ba30c01873b6 |
 ```
+
+
+## Generate list of active VMs with migrate_to project metadata for provided subnet
+
+```bash
+❯ collector -e ams_private svcsubnet --subnet "17597ea9-b562-486f-882f-938440538afb"
++--------------------------------------+-----------------+----------------------------------+----------------------------------+-------------+--------------+
+|                vm.id                 |     vm.name     |          vm.project_id           |           dst_project            |     fip     | initial_ping |
++--------------------------------------+-----------------+----------------------------------+----------------------------------+-------------+--------------+
+| 6611be28-48d6-4f8f-86fe-25d87a648d12 | testvm-b33f1b07 | 389f6c3921fa41b4a5bab611f8817bcc |           openstack-n3           | 10.30.17.14 |   Success    |
+| 6e356920-d6b8-4e50-913e-d20fbec53326 |  N3-Stunnel-Alv | ad9b4aef39f74eaf93dbe8379b7cfc85 | 997bb38cd1df4035a138ab453d34cf85 |             |   Success    |
+| aef6a776-ea30-4dc8-9ea7-a80dbeea59e0 |   velia-drone   | 71fde4229523479e914a66669380f44d | c581e9ca9e994f28a3247d5a0b1f1058 |  10.30.17.5 |   Success    |
+| 31a81612-1fc2-49cc-9103-994fb4d61a60 | velia-sonarqube | 71fde4229523479e914a66669380f44d | c581e9ca9e994f28a3247d5a0b1f1058 |  10.30.17.6 |   Success    |
++--------------------------------------+-----------------+----------------------------------+----------------------------------+-------------+--------------+
+```
+
+# To generate the output in svc:
+```bash
+❯ collector -e ams_private svcsubnet --subnet "a4432946-fe51-44ab-a076-a9e254c85bf0" --svc
+
+
+```
