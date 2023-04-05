@@ -1124,8 +1124,8 @@ class UnlinkedCollector(Collector):
         table.print_table()
 
 
-class SubnetSvcCollector(Collector):
-    def get_resources(self, env, subnet, svc_output):
+class SubnetCsvCollector(Collector):
+    def get_resources(self, env, subnet, csv_output):
         cli = self._get_client(env)
         servers = cli.list_servers(
             all_projects=True, bare=True, filters={'limit': 1000})
@@ -1187,7 +1187,7 @@ class SubnetSvcCollector(Collector):
                 return ''
            
 
-        def generate_output(svc_output):
+        def generate_output(csv_output):
             subnet = get_subnet()
             instances = get_filtered_instances()
             table_data = []
@@ -1211,7 +1211,7 @@ class SubnetSvcCollector(Collector):
                                     'fip': get_floating_ips(instance),
                                     'initial_ping': get_initial_ping(ip)
                                 }
-                                if svc_output:
+                                if csv_output:
                                     writer.writerow(row)
                                 else:
                                     table_data.append([instance.id,
@@ -1221,11 +1221,11 @@ class SubnetSvcCollector(Collector):
                                                        get_floating_ips(instance), 
                                                        get_initial_ping(ip)])
 
-            if not svc_output:
+            if not csv_output:
                 table = Table(field_names, table_data)
                 table.print_table()
 
-        generate_output(svc_output)
+        generate_output(csv_output)
 
 
 class AllCollector(Collector):
@@ -1292,7 +1292,7 @@ def main():
     parser.add_argument('collector', choices=['servers', 'hypervisors', 'risky',
                                               'subnets', 'vmpersub', 'vmperhv', 'projects',
                                               'empty_projects', 'multifips', 'group',
-                                              'project_validate', 'zones', 'unlinked', 'combined_zones', 'svcsubnet', 'all'],
+                                              'project_validate', 'zones', 'unlinked', 'combined_zones', 'csvsubnet', 'all'],
                         help='Collect data about instances, hypervisors or subnets',
                         default='all'
                         )
@@ -1348,10 +1348,10 @@ def main():
                         help='Provide Subnet to generate list all instances under that subnet',
                         action='store',
                         dest='subnet')
-    parser.add_argument('--svc',
+    parser.add_argument('--csv',
                         help='Write to svc file',
                         action='store_true',
-                        dest='svc_output', default=False)
+                        dest='csv_output', default=False)
 
     args = parser.parse_args()
 
@@ -1377,7 +1377,7 @@ def main():
         'zones': {'type': ZoneCollector(), 'filters': [args.env, args.json_output]},
         'unlinked': {'type': UnlinkedCollector(), 'filters': [args.env, args.zone]},
         'combined_zones': {'type': CombinedZoneCollector(), 'filters': [args.env, args.json_output]},
-        'svcsubnet': {'type': SubnetSvcCollector(), 'filters': [args.env, args.subnet, args.svc_output]},
+        'csvsubnet': {'type': SubnetCsvCollector(), 'filters': [args.env, args.subnet, args.csv_output]},
         'all': {'type': AllCollector(), 'filters': [args.which, args.usage]}
     }
     
