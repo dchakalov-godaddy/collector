@@ -326,7 +326,7 @@ Lising all found subnets:
 
 # To generate the output in csv:
 ```bash
-❯ collector -e ams_private svcsubnet --subnet "a4432946-fe51-44ab-a076-a9e254c85bf0" --csv
+❯ collector -e ams_private csvsubnet --subnet "a4432946-fe51-44ab-a076-a9e254c85bf0" --csv
 
 
 ```
