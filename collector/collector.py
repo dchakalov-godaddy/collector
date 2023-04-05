@@ -24,7 +24,6 @@ clouds = [
     'iad_private',
     'phx_private',
     'sin_private'
-    # 'ams_ztn'
 ]
 
 
@@ -933,33 +932,9 @@ class EmptyProjectCollector(Collector):
 class ProjectValidator(Collector):
     def get_resources(self, env, json_output):
         cli = self._get_client(env)
-
-        # Getting a list of all projects
-        projects = cli.list_projects()
-
-        cloud_map = {
-            'ams_private': 'ams_osng',
-            'iad_private': 'iad_osng',
-            'phx_private': 'phx_osng',
-            'sin_private': 'sin_osng'
-        }
-
-        # Getting destination cloud data
-        dest_cli = self._get_client(cloud_map[env])
-        # Getting destination cloud projects
-        dst_projects = dest_cli.list_projects()
-        dst_project_ids = [p.id for p in dst_projects]
-        dst_project_names = [p.name for p in dst_projects]
-
-        projects_data = []
-
-        for project in projects:
-            if project.meta.get('migrate_to'):
-                if project.meta.get('migrate_to') != 'do_not_migrate':
-                    if project.meta.get('migrate_to') not in dst_project_ids and project.meta.get('migrate_to') not in dst_project_names:
-                        projects_data.append({'name': project.name, 'id': project.id, 'owning_group': self._owning_group_formatter(project.meta.get(
-                            'owning_group', 'Unknown')), 'set_dst_project': project.meta.get('migrate_to')})
-
+        projects = self._list_all_projects(cli)
+        dst_project_ids, dst_project_names = self._get_destination_cloud_data(env)
+        projects_data = self._get_projects_to_migrate(projects, dst_project_ids, dst_project_names)
         if json_output:
             return {env: projects_data}
         else:
@@ -967,6 +942,39 @@ class ProjectValidator(Collector):
             values = [x.values() for x in projects_data]
             table = Table(headers, values)
             table.print_table()
+
+    def _list_all_projects(self, cli):
+        return cli.list_projects()
+
+    def _get_destination_cloud_data(self, env):
+        cloud_map = {
+            'ams_private': 'ams_osng',
+            'iad_private': 'iad_osng',
+            'phx_private': 'phx_osng',
+            'sin_private': 'sin_osng'
+        }
+        # Getting destination cloud data
+        dst_cli = self._get_client(cloud_map[env])
+        # Getting destination cloud projects
+        dst_projects = dst_cli.list_projects()
+        dst_project_ids = [p.id for p in dst_projects]
+        dst_project_names = [p.name for p in dst_projects]
+        return dst_project_ids, dst_project_names
+
+    def _get_projects_to_migrate(self, projects, dst_project_ids, dst_project_names):
+        projects_data = []
+        for project in projects:
+            if project.meta.get('migrate_to'):
+                if project.meta.get('migrate_to') != 'do_not_migrate':
+                    if project.meta.get('migrate_to') not in dst_project_ids and project.meta.get('migrate_to') not in dst_project_names:
+                        projects_data.append({
+                            'name': project.name,
+                            'id': project.id,
+                            'owning_group': self._owning_group_formatter(project.meta.get('owning_group', 'Unknown')),
+                            'set_dst_project': project.meta.get('migrate_to')
+                        })
+        return projects_data
+
 
 
 class VMsWithMultipleFipsCollector(Collector):
