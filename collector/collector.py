@@ -1136,7 +1136,7 @@ class SubnetCsvCollector(Collector):
     def get_resources(self, env, subnet, csv_output):
         cli = self._get_client(env)
         servers = cli.list_servers(
-            all_projects=True, bare=True, filters={'limit': 1000})
+                all_projects=True, bare=True, filters={'limit': 1000, 'vm_state': 'ACTIVE'})
 
         try:
             projects = cli.list_projects()
@@ -1164,8 +1164,6 @@ class SubnetCsvCollector(Collector):
         def get_filtered_instances():
             filtered_instances = []
             for instance in servers:
-                if instance.status != 'ACTIVE':
-                    continue
                 if not get_dst_project(instance):
                     continue
                 filtered_instances.append(instance)
@@ -1174,7 +1172,7 @@ class SubnetCsvCollector(Collector):
             return filtered_instances
 
         def get_subnet():
-            return cli.get_subnet(subnet)
+            return cli.get_subnet_by_id(subnet)
 
         def get_initial_ping(ip):
             try:
