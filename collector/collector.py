@@ -1,19 +1,19 @@
 #!/usr/bin/env python
 
 import argparse
+import csv
 import datetime
+from datetime import date, datetime, timedelta, timezone
+from functools import reduce
 import ipaddress
 import json
 import math
-import os
-import csv
-import sys
-from datetime import date, datetime, timedelta, timezone
-from functools import reduce
-
 import openstack
 import openstack.config
+import os
 import prettytable
+from requests.exceptions import JSONDecodeError
+import sys
 from usage import high_risk_hv, vm_disk_usage
 
 # Getting the configuration data from clouds.yaml file
@@ -1136,9 +1136,13 @@ class SubnetCsvCollector(Collector):
     def get_resources(self, env, subnet, csv_output):
         cli = self._get_client(env)
         servers = cli.list_servers(
-            all_projects=True, bare=True, filters={'limit': 1000})
-        
-        projects = cli.list_projects()
+                all_projects=True, bare=True, filters={'limit': 1000, 'vm_state': 'ACTIVE'})
+
+        try:
+            projects = cli.list_projects()
+        except JSONDecodeError:
+            # This likes to error randomly in phx_private
+            projects = cli.list_projects()
 
         def filter_projects():
             filtered_projects = []
@@ -1160,17 +1164,15 @@ class SubnetCsvCollector(Collector):
         def get_filtered_instances():
             filtered_instances = []
             for instance in servers:
-                if instance.status != 'ACTIVE':
-                    continue
                 if not get_dst_project(instance):
                     continue
                 filtered_instances.append(instance)
 
             # filtered_instances = [instance for instance in filtered_instances if instance.addresses]
             return filtered_instances
-        
+
         def get_subnet():
-            return cli.get_subnet(subnet)
+            return cli.get_subnet_by_id(subnet)
 
         def get_initial_ping(ip):
             try:
@@ -1185,7 +1187,7 @@ class SubnetCsvCollector(Collector):
         def get_floating_ips(server):
             ips = []
             floating_ips = cli.list_floating_ips({'port_id': cli.list_ports({'device_id': server.id})[0]['id']})
-            
+
             for ip in floating_ips:
                 ips.append(ip.floating_ip_address)
 
@@ -1193,14 +1195,14 @@ class SubnetCsvCollector(Collector):
                 return ','.join(ips)
             else:
                 return ''
-           
+
 
         def generate_output(csv_output):
             subnet = get_subnet()
             instances = get_filtered_instances()
             table_data = []
 
-            field_names = ['vm.id', 'vm.name', 'vm.project_id', 'dst_project', 'fip', 'initial_ping']
+            field_names = ['src_vm', 'vm.name', 'vm.project_id', 'dst_project', 'fip', 'initial_ping']
 
             with open(f"vm_per_subnet-{subnet.id}.csv", mode='w', newline='') as f:
                 writer = csv.DictWriter(f, fieldnames=field_names)
@@ -1212,7 +1214,7 @@ class SubnetCsvCollector(Collector):
                             ip = address_detail['addr']
                             if ipaddress.ip_address(ip) in ipaddress.ip_network(subnet.cidr):
                                 row = {
-                                    'vm.id': instance.id,
+                                    'src_vm': instance.id,
                                     'vm.name': instance.name,
                                     'vm.project_id': instance.project_id,
                                     'dst_project': get_dst_project(instance),
@@ -1226,7 +1228,7 @@ class SubnetCsvCollector(Collector):
                                                        instance.name,
                                                        instance.project_id,
                                                        get_dst_project(instance),
-                                                       get_floating_ips(instance), 
+                                                       get_floating_ips(instance),
                                                        get_initial_ping(ip)])
 
             if not csv_output:
@@ -1388,7 +1390,7 @@ def main():
         'csvsubnet': {'type': SubnetCsvCollector(), 'filters': [args.env, args.subnet, args.csv_output]},
         'all': {'type': AllCollector(), 'filters': [args.which, args.usage]}
     }
-    
+
     # Creating a new collector depending on the provided type
     collector = collectors[args.collector]['type']
     # Adding the filters for that particular collector
