@@ -1167,7 +1167,11 @@ class SubnetCsvCollector(Collector):
             return filtered_projects
 
         def get_dst_project(server):
-            project = [p for p in filtered_projects if p.id == server.project_id]
+            if server['metadata'].get('migrate_to'):
+                project = server['metadata'].get('migrate_to')
+            else:
+                project = [p for p in filtered_projects if p.id == server.project_id]
+
             if len(project) == 0:
                 return None
             else:
