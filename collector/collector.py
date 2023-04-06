@@ -14,6 +14,7 @@ import os
 import prettytable
 from requests.exceptions import JSONDecodeError
 import sys
+from time import sleep
 from usage import high_risk_hv, vm_disk_usage
 
 # Getting the configuration data from clouds.yaml file
@@ -951,7 +952,8 @@ class ProjectValidator(Collector):
             'ams_private': 'ams_osng',
             'iad_private': 'iad_osng',
             'phx_private': 'phx_osng',
-            'sin_private': 'sin_osng'
+            'sin_private': 'sin_osng',
+            'phx_understage': 'phx_nxt_2'
         }
         # Getting destination cloud data
         dst_cli = self._get_client(cloud_map[env])
@@ -1133,33 +1135,45 @@ class UnlinkedCollector(Collector):
 
 
 class SubnetCsvCollector(Collector):
-    def get_resources(self, env, subnet, csv_output):
+    def get_resources(self, env, subnet, zone, csv_output):
         cli = self._get_client(env)
-        servers = cli.list_servers(
-                all_projects=True, bare=True, filters={'limit': 1000, 'vm_state': 'ACTIVE'})
+        if zone:
+            servers = cli.list_servers(
+                    all_projects=True, bare=True, filters={
+                        'limit': 1000,
+                        'vm_state': 'ACTIVE',
+                        'availability_zone': zone
+                    })
+        else:
+            print("No zone selected! Including all availability zones!")
+            servers = cli.list_servers(
+                    all_projects=True, bare=True, filters={
+                        'limit': 1000,
+                        'vm_state': 'ACTIVE'
+                    })
 
         try:
             projects = cli.list_projects()
         except JSONDecodeError:
             # This likes to error randomly in phx_private
+            sleep(10)
             projects = cli.list_projects()
 
         def filter_projects():
             filtered_projects = []
             for project in projects:
                 if project.meta.get('migrate_to'):
-                    if project.meta.get('migrate_to') != 'do_not_migrate':
-                        filtered_projects.append(project)
+                    filtered_projects.append(project)
             return filtered_projects
-        filtered_projects = filter_projects()
 
         def get_dst_project(server):
-            project =  [p for p in filtered_projects if p.id == server.project_id]
+            project = [p for p in filtered_projects if p.id == server.project_id]
             if len(project) == 0:
                 return None
             else:
+                if "," in project[0].meta['migrate_to']:
+                    return "Invalid character in project name"
                 return project[0].meta['migrate_to']
-
 
         def get_filtered_instances():
             filtered_instances = []
@@ -1181,30 +1195,29 @@ class SubnetCsvCollector(Collector):
                     return "Success"
                 else:
                     return "Failed"
-            except:
+            except Exception:
                 return "Failed"
 
         def get_floating_ips(server):
-            ips = []
-            floating_ips = cli.list_floating_ips({'port_id': cli.list_ports({'device_id': server.id})[0]['id']})
-
-            for ip in floating_ips:
-                ips.append(ip.floating_ip_address)
-
-            if len(ips) > 0:
-                return ','.join(ips)
+            fips = []
+            for port in cli.list_ports({'device_id': server.id}):
+                for fip in cli.list_floating_ips({'port_id': port.id}):
+                    fips.append(fip.floating_ip_address)
+            if len(fips) > 0:
+                # Can't use comma here in a CSV. Semicolon and decimal also used in some regions.
+                return '-'.join(fips)
             else:
                 return ''
 
-
-        def generate_output(csv_output):
+        def generate_output(stdout):
             subnet = get_subnet()
             instances = get_filtered_instances()
             table_data = []
 
             field_names = ['src_vm', 'vm.name', 'vm.project_id', 'dst_project', 'fip', 'initial_ping']
 
-            with open(f"vm_per_subnet-{subnet.id}.csv", mode='w', newline='') as f:
+            az = zone if zone else 'all'
+            with open(f"migration_{subnet.id}_{az}.csv", mode='w', newline='') as f:
                 writer = csv.DictWriter(f, fieldnames=field_names)
                 writer.writeheader()
 
@@ -1221,9 +1234,9 @@ class SubnetCsvCollector(Collector):
                                     'fip': get_floating_ips(instance),
                                     'initial_ping': get_initial_ping(ip)
                                 }
-                                if csv_output:
-                                    writer.writerow(row)
-                                else:
+                                writer.writerow(row)
+
+                                if stdout:
                                     table_data.append([instance.id,
                                                        instance.name,
                                                        instance.project_id,
@@ -1231,10 +1244,11 @@ class SubnetCsvCollector(Collector):
                                                        get_floating_ips(instance),
                                                        get_initial_ping(ip)])
 
-            if not csv_output:
+            if stdout:
                 table = Table(field_names, table_data)
                 table.print_table()
 
+        filtered_projects = filter_projects()
         generate_output(csv_output)
 
 
@@ -1351,17 +1365,17 @@ def main():
                         action='store',
                         dest='group')
     parser.add_argument('-z', '--zone',
-                        help='Provide AV zone to list all unlinked VMs under',
+                        help='Provide AV zone to list VMs under',
                         action='store',
                         dest='zone')
     parser.add_argument('--subnet',
                         help='Provide Subnet to generate list all instances under that subnet',
                         action='store',
                         dest='subnet')
-    parser.add_argument('--csv',
-                        help='Write to svc file',
+    parser.add_argument('--print',
+                        help='Write to stdout',
                         action='store_true',
-                        dest='csv_output', default=False)
+                        dest='stdout', default=False)
 
     args = parser.parse_args()
 
@@ -1387,7 +1401,7 @@ def main():
         'zones': {'type': ZoneCollector(), 'filters': [args.env, args.json_output]},
         'unlinked': {'type': UnlinkedCollector(), 'filters': [args.env, args.zone]},
         'combined_zones': {'type': CombinedZoneCollector(), 'filters': [args.env, args.json_output]},
-        'csvsubnet': {'type': SubnetCsvCollector(), 'filters': [args.env, args.subnet, args.csv_output]},
+        'csvsubnet': {'type': SubnetCsvCollector(), 'filters': [args.env, args.subnet, args.zone, args.stdout]},
         'all': {'type': AllCollector(), 'filters': [args.which, args.usage]}
     }
 
