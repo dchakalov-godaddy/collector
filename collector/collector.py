@@ -1159,30 +1159,34 @@ class SubnetCsvCollector(Collector):
             sleep(10)
             projects = cli.list_projects()
 
-        def filter_projects():
-            filtered_projects = []
-            for project in projects:
-                if project.meta.get('migrate_to'):
-                    filtered_projects.append(project)
-            return filtered_projects
-
-        def get_dst_project(server):
+        def get_dst_project(server, dst_projects):
+            dst_project = None
             if server['metadata'].get('migrate_to'):
-                project = server['metadata'].get('migrate_to')
+                dst_project_unsafe = server['metadata'].get('migrate_to')
             else:
-                project = [p for p in filtered_projects if p.id == server.project_id]
+                project = [p for p in projects if p.id == server.project_id]
+                project = project[0] if project else None
+                try:
+                    dst_project_unsafe = project.get('meta').get('migrate_to')
+                except AttributeError:
+                    pass
 
-            if len(project) == 0:
-                return None
+            if dst_project_unsafe:
+                if dst_project_unsafe == 'do_not_migrate':
+                    return {'id': 'do_not_migrate', 'name': 'do_not_migrate'}
+                dst_project = [p for p in dst_projects if p.id == dst_project_unsafe]
+                if not dst_project:
+                    dst_project = [p for p in dst_projects if p.name == dst_project_unsafe]
+
+            if dst_project:
+                return dst_project[0]
             else:
-                if "," in project[0].meta['migrate_to']:
-                    return "Invalid character in project name"
-                return project[0].meta['migrate_to']
+                return {'id': 'invalid', 'name': dst_project_unsafe}
 
         def get_filtered_instances():
             filtered_instances = []
             for instance in servers:
-                if not get_dst_project(instance):
+                if not get_dst_project(instance, dst_projects):
                     continue
                 filtered_instances.append(instance)
 
@@ -1213,46 +1217,56 @@ class SubnetCsvCollector(Collector):
             else:
                 return ''
 
+        def get_dst_projects(env):
+            cloud_map = {
+                'ams_private': 'ams_osng',
+                'iad_private': 'iad_osng',
+                'phx_private': 'phx_osng',
+                'sin_private': 'sin_osng',
+                'phx_understage': 'phx_nxt_2'
+            }
+            # Getting destination cloud data
+            dst_cli = self._get_client(cloud_map[env])
+            # Getting destination cloud projects
+            dst_projects = dst_cli.list_projects()
+            return dst_projects
+
         def generate_output(stdout):
             subnet = get_subnet()
-            instances = get_filtered_instances()
             table_data = []
+            dst_projects = get_dst_projects(env)
 
-            field_names = ['src_vm', 'vm.name', 'vm.project_id', 'dst_project', 'fip', 'initial_ping']
+            field_names = ['src_vm', 'vm.name', 'vm.project_id', 'dst_project',
+                           'dst_project_name', 'fip', 'initial_ping']
 
             az = zone if zone else 'all'
             with open(f"migration_{subnet.id}_{az}.csv", mode='w', newline='') as f:
                 writer = csv.DictWriter(f, fieldnames=field_names)
                 writer.writeheader()
 
-                for instance in instances:
+                for instance in servers:
                     for address in instance.addresses.values():
                         for address_detail in address:
                             ip = address_detail['addr']
                             if ipaddress.ip_address(ip) in ipaddress.ip_network(subnet.cidr):
+                                dst_project = get_dst_project(instance, dst_projects)
                                 row = {
                                     'src_vm': instance.id,
                                     'vm.name': instance.name,
                                     'vm.project_id': instance.project_id,
-                                    'dst_project': get_dst_project(instance),
+                                    'dst_project': dst_project['id'],
+                                    'dst_project_name': dst_project['name'],
                                     'fip': get_floating_ips(instance),
                                     'initial_ping': get_initial_ping(ip)
                                 }
                                 writer.writerow(row)
-
                                 if stdout:
-                                    table_data.append([instance.id,
-                                                       instance.name,
-                                                       instance.project_id,
-                                                       get_dst_project(instance),
-                                                       get_floating_ips(instance),
-                                                       get_initial_ping(ip)])
+                                    table_data.append(row.values())
 
             if stdout:
                 table = Table(field_names, table_data)
                 table.print_table()
 
-        filtered_projects = filter_projects()
         generate_output(csv_output)
 
 
