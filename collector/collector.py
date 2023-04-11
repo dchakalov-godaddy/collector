@@ -63,51 +63,65 @@ class Collector:
 
 
 class HypervisorCollector(Collector):
-
-    def get_resources(self, env, json_output):
-        cli = self._get_client(env)
+    @staticmethod
+    def get_hypervisors_data(cli):
         hypervisors = cli.list_hypervisors()
-
-        # Setting the result table headings
-        headers = ["Name", 'State', "Host IP", 'Disk size',
-                   'Used space', 'Free space',  "Use %", 'Running VMs']
-
-        # Filling the table rows only with the needed columns
         hypervisors_data = []
         for hypervisor in hypervisors:
             hypervisors_data.append(
                 [hypervisor.name, hypervisor.state, hypervisor.host_ip,
-                 f"{round(hypervisor.local_disk_size/1024, 2)} TB", f"{hypervisor.local_disk_used} GB",
-                 f"{hypervisor.local_disk_free} GB", round((hypervisor.local_disk_used/hypervisor.local_disk_size) * 100, 1), hypervisor.running_vms])
+                 f"{round(hypervisor.local_disk_size/1024, 2)} TB", f"{hypervisor.local_disk_used}",
+                 f"{hypervisor.local_disk_free}", round((hypervisor.local_disk_used/hypervisor.local_disk_size) * 100, 1), hypervisor.running_vms])
+        return hypervisors_data
 
+    @staticmethod
+    def format_hypervisors_data(hypervisors_data):
+        headers = ["Name", 'State', "Host IP", 'Disk size',
+                   'Used space', 'Free space',  "Use %", 'Running VMs']
+        hypervisors_data = sorted(
+            hypervisors_data, key=lambda x: int(x[6]), reverse=True)
+        table = Table(headers, hypervisors_data)
+        return table
+
+    @staticmethod
+    def format_hypervisors_data_as_json(hypervisors_data):
         hv_data = []
-        if json_output:
-            for hv in hypervisors_data:
-                hv_data.append({
-                    "name": hv[0], 'state': hv[1],
-                    "host_ip": hv[2], 'disk_size': hv[3],
-                    'used_space': hv[4], 'free_space': hv[5],
-                    "use_percentage": hv[6], 'running_vms': hv[7]
-                })
-
-            return {env: sorted(hv_data, key=lambda x: int(x['use_percentage']), reverse=True)}
-
-        else:
-            self.print_general_info(env, hypervisors)
-            hypervisors_data = sorted(
-                hypervisors_data, key=lambda x: int(x[6]), reverse=True)
-            table = Table(headers, hypervisors_data)
-            table.print_table()
+        for hv in hypervisors_data:
+            hv_data.append({
+                "name": hv[0], 'state': hv[1],
+                "host_ip": hv[2], 'disk_size': hv[3],
+                'used_space': hv[4], 'free_space': hv[5],
+                "use_percentage": hv[6], 'running_vms': hv[7]
+            })
+        return hv_data
 
     @classmethod
-    def print_general_info(self, env, hypervisors):
+    def print_general_info(cls, env, hypervisors):
         print(f"Number of HVs on {env}: {len(hypervisors)}")
-        print(
-            f"Number of HVs with 0 running VMs: {len([h for h in hypervisors if h.running_vms == 0])}")
-        print(
-            f"Total disk used: {round(reduce(lambda a, b: a + b, [h.local_disk_used for h in hypervisors ])/1024, 2)} TB")
-        print(
-            f"Total free space: {round(reduce(lambda a, b: a + b, [h.local_disk_free for h in hypervisors ])/1024, 2)} TB")
+        print(f"Number of HVs with 0 running VMs: {len([h for h in hypervisors if h[7] == 0])}")
+        print(f"Total disk used: {cls.get_total_disk_used(hypervisors)}")
+        print(f"Total free space: {cls.get_total_free_space(hypervisors)}")
+
+    @staticmethod
+    def get_total_disk_used(hypervisors):
+        total_used = reduce(lambda a, b: a + b, [int(h[4]) for h in hypervisors])
+        return f"{round(int(total_used)/1024, 2)} TB"
+
+    @staticmethod
+    def get_total_free_space(hypervisors):
+        total_free = reduce(lambda a, b: a + b, [int(h[5]) for h in hypervisors])
+        return f"{round(total_free/1024, 2)} TB"
+
+    def get_resources(self, env, json_output):
+        cli = self._get_client(env)
+        hypervisors_data = self.get_hypervisors_data(cli)
+        if json_output:
+            hv_data = self.format_hypervisors_data_as_json(hypervisors_data)
+            return {env: sorted(hv_data, key=lambda x: int(x['use_percentage']), reverse=True)}
+        else:
+            self.print_general_info(env, hypervisors_data)
+            table = self.format_hypervisors_data(hypervisors_data)
+            table.print_table()
 
 
 class ServerCollector(Collector):
@@ -977,8 +991,6 @@ class ProjectValidator(Collector):
                         })
         return projects_data
 
-
-
 class VMsWithMultipleFipsCollector(Collector):
     def get_resources(self, env, json_output):
         cli = self._get_client(env)
@@ -1406,7 +1418,7 @@ def main():
     collectors = {
         'servers': {'type': ServerCollector(), 'filters': [
             args.env, args.sorter or 'usage', args.hours or 24, args.bigger or 0]},
-        'hypervisors': {'type': HypervisorCollector(), 'filters': [args.env, args.usage, args.json_output]},
+        'hypervisors': {'type': HypervisorCollector(), 'filters': [args.env, args.json_output]},
         'risky': {'type': HighRiskCollector(), 'filters': [args.env, args.json_output]},
         'subnets': {'type': SubnetCollector(), 'filters': [args.env, args.usage, args.json_output]},
         'vmpersub': {'type': VMsPerSubnetCollector(), 'filters': [args.env, args.json_output]},
