@@ -1000,49 +1000,27 @@ class VMsWithMultipleFipsCollector(Collector):
             all_projects=True, bare=True, filters={'limit': 1000})
 
         ports = cli.list_ports()
-
-        flips = cli.list_floating_ips()
+        floating_ips = cli.list_floating_ips()
 
         server_data = []
 
-        headers = ['Name', 'ID', 'Owning group', 'FIPs', 'Port_IPs']
+        headers = ['Name', 'ID', 'Owning group', 'FIPs']
+
+        def get_floating_ips(server):
+            fips = []
+            server_ports = [p for p in ports if p["device_id"] == server.id]
+            for port in server_ports:
+                port_flips = [f for f in floating_ips if f["port_id"] == port.id]
+                for fip in port_flips:
+                    fips.append(fip.floating_ip_address)
+            return fips
 
         for server in servers:
-            if bool(server.addresses) == True:
-                server.ports = []
-                # Getting the network name key
-                network_key = list(server.addresses)[0]
-                # Getting the list of server addresses
-                ips = server.addresses[network_key]
+            server_fips = get_floating_ips(server)
 
-                # Checking the count of floating IPs for each VM
-                floating_ips_count = 0
-                floating_ips = []
-                port_ips = []
-                for ip in ips:
-                    if (ip['OS-EXT-IPS:type']) == 'floating':
-                        floating_ips_count += 1
-                        floating_ips.append(ip['addr'])
-
-                        flip_list = [
-                            f for f in flips if f['floating_ip_address'] == ip['addr']]
-                        if len(flip_list) > 0:
-                            server.ports.append(flip_list[0].port_id)
-
-                # Checking for VMs with more than 1 FIP
-                if len(server.ports) > 0:
-                    for port in server.ports:
-                        if port != None:
-                            current_port = [
-                                p for p in ports if p.id == port][0]
-                            allowed_address_pairs = current_port.allowed_address_pairs
-                            if len(allowed_address_pairs) > 1:
-                                for ip in allowed_address_pairs:
-                                    port_ips.append(ip['ip_address'])
-                if floating_ips_count > 1 or len(port_ips):
-
-                    server_data.append({'name': server.name, 'id': server.id, 'owning_group': self._owning_group_formatter(server.metadata.get(
-                        'owning_group', 'None')), 'fips': floating_ips, 'port_ips': port_ips})
+            if len(server_fips) > 1:
+                server_data.append({'name': server.name, 'id': server.id, 'owning_group': self._owning_group_formatter(server.metadata.get(
+                'owning_group', 'None')), 'fips': server_fips})
 
         if json_output:
             return {env: server_data}
@@ -1079,12 +1057,12 @@ class OwningGroupCollector(Collector):
             network_name = [n for n in networks if n.id == network_id][0].name
             # Checking if subnet key exists in the object and if not creating it
             if cidr not in result_subnets:
-                result_subnets[cidr] = {}
-                result_subnets[cidr]['name'] = sub.cidr
-                result_subnets[cidr]['id'] = subnet_id
-                result_subnets[cidr]['network_zone'] = network_name
-                result_subnets[cidr]['vms'] = []
-                result_subnets[cidr]['hvs'] = []
+                result_subnets[cidr] = {
+                    'name': sub.cidr,
+                    'id': subnet_id,
+                    'network_zone': network_name,
+                    'vms': []
+                }
             for server in needed_servers:
                 if bool(server.addresses) == True:
                     network_key = list(server.addresses)[0]
@@ -1101,7 +1079,6 @@ class OwningGroupCollector(Collector):
 
         headers = ['Name', 'ID', 'Owning group']
 
-        print("")
         print(
             f" - Looking for all subnets that have VM with owning group including {group} in the name...")
         print(
@@ -1126,7 +1103,8 @@ class UnlinkedCollector(Collector):
         cli = self._get_client(env)
 
         servers = cli.list_servers(
-            all_projects=True, bare=True, filters={'limit': 1000})
+            all_projects=True, bare=True, filters={'limit': 1000, 'vm_state': 'ACTIVE',
+                        'availability_zone': zone})
 
         projects = cli.list_projects()
         unlinked_projects = [
@@ -1135,7 +1113,7 @@ class UnlinkedCollector(Collector):
         result_servers = []
 
         for server in servers:
-            if server['OS-EXT-AZ:availability_zone'] == zone and server.status == 'ACTIVE' and server.project_id in unlinked_projects:
+            if server.project_id in unlinked_projects:
                 result_servers.append(
                     {'name': server.name, 'id': server.id, 'project': server.project_id})
 
