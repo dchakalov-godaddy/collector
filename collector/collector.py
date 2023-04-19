@@ -364,19 +364,20 @@ class ZoneCollector(Collector):
 
         def collect_subnet_data(result_subnets):
             subnet_data = []
-        
+
             for subnet in result_subnets:
                 subnet_obj = {}
                 # Collecting current subnet hypervisors
                 subnet_vms = result_subnets[subnet]['vms']
-        
+
                 subnet_obj['subnet'] = f"{subnet} - {result_subnets[subnet]['id']}"
                 zones = []
                 zones_vms = {}
-                subnet_obj['zones'] = get_zones_data(zones_vms, zones, subnet_vms)
+                subnet_obj['zones'] = get_zones_data(
+                    zones_vms, zones, subnet_vms)
                 subnet_data.append(subnet_obj)
             return subnet_data
-        
+
         def get_zones_data(zones_vms, zones, subnet_vms):
             for server in subnet_vms:
                 zone = server['OS-EXT-AZ:availability_zone']
@@ -386,7 +387,7 @@ class ZoneCollector(Collector):
                     zones_vms[zone].append(server)
                 else:
                     zones_vms[zone].append(server)
-        
+
             zones_data = []
             for zone in zones_vms:
                 vms = zones_vms[zone]
@@ -463,73 +464,78 @@ class CombinedZoneCollector(Collector):
             s for s in dest_servers if "migration_src" in s.metadata.keys()]
 
         def get_zones(servers):
-                zones = []
-                zones_vms = {}
-        
-                for server in servers:
-                    zone = server['OS-EXT-AZ:availability_zone']
-                    if 'gen' not in zone:
-                        if env == 'sin_private' and 'prd' in zone:
-                            continue
+            zones = []
+            zones_vms = {}
+
+            for server in servers:
+                zone = server['OS-EXT-AZ:availability_zone']
+                if 'gen' not in zone:
+                    if env == 'sin_private' and 'prd' in zone:
+                        continue
+                    else:
+                        if zone not in zones:
+                            zones.append(zone)
+                            zones_vms[zone] = []
+                            zones_vms[zone].append(server)
                         else:
-                            if zone not in zones:
-                                zones.append(zone)
-                                zones_vms[zone] = []
-                                zones_vms[zone].append(server)
-                            else:
-                                zones_vms[zone].append(server)
-                return zones_vms
-        
+                            zones_vms[zone].append(server)
+            return zones_vms
+
         def get_active_vms(vms):
             active_vms = [vm for vm in vms if vm.status == 'ACTIVE']
             return active_vms
-        
+
         def get_migrated_vms(vms, dest_servers_with_migration_meta):
             migrated = ([vm for vm in vms if "migration_dst" in vm.metadata.keys()
-                                 and any(s.id == vm.metadata['migration_dst'] for s in dest_servers_with_migration_meta)])
+                         and any(s.id == vm.metadata['migration_dst'] for s in dest_servers_with_migration_meta)])
             return migrated
-        
+
         def get_migrated_active_vms(migrated):
             migrated_active = len(
-                        [vm for vm in migrated if vm.status == 'ACTIVE'])
+                [vm for vm in migrated if vm.status == 'ACTIVE'])
             return migrated_active
-        
+
         def get_migrated_inactive_vms(migrated):
             migrated_inactive = len(
-                        [vm for vm in migrated if vm.status != 'ACTIVE'])
+                [vm for vm in migrated if vm.status != 'ACTIVE'])
             return migrated_inactive
-        
+
         def get_do_not_migrate_vms(active_vms, do_not_migrate_projects):
             do_not_migrate_vms = len([
-                        vm for vm in active_vms if vm.project_id in do_not_migrate_projects])
+                vm for vm in active_vms if vm.project_id in do_not_migrate_projects])
             return do_not_migrate_vms
-        
+
         def get_unlinked_vms(active_vms, projects_with_no_migrate_meta):
             unlinked_vms = len([
-                        vm for vm in active_vms if vm.project_id in projects_with_no_migrate_meta])
+                vm for vm in active_vms if vm.project_id in projects_with_no_migrate_meta])
             return unlinked_vms
-        
+
         def get_to_be_migrated(active_vms, do_not_migrate_vms, unlinked_vms):
             to_be_migrated = len(active_vms) - \
-                        do_not_migrate_vms - unlinked_vms
+                do_not_migrate_vms - unlinked_vms
             return to_be_migrated
-        
+
         def get_result_zones(zones_vms, do_not_migrate_projects, projects_with_no_migrate_meta, dest_servers_with_migration_meta):
             result_zones = []
             for zone in zones_vms:
                 vms = zones_vms[zone]
                 active_vms = get_active_vms(vms)
-                migrated = get_migrated_vms(vms, dest_servers_with_migration_meta)
+                migrated = get_migrated_vms(
+                    vms, dest_servers_with_migration_meta)
                 migrated_active = get_migrated_active_vms(migrated)
                 migrated_inactive = get_migrated_inactive_vms(migrated)
-                do_not_migrate_vms = get_do_not_migrate_vms(active_vms, do_not_migrate_projects)
-                unlinked_vms = get_unlinked_vms(active_vms, projects_with_no_migrate_meta)
-                to_be_migrated = get_to_be_migrated(active_vms, do_not_migrate_vms, unlinked_vms)
+                do_not_migrate_vms = get_do_not_migrate_vms(
+                    active_vms, do_not_migrate_projects)
+                unlinked_vms = get_unlinked_vms(
+                    active_vms, projects_with_no_migrate_meta)
+                to_be_migrated = get_to_be_migrated(
+                    active_vms, do_not_migrate_vms, unlinked_vms)
                 result_zones.append({'zone': zone, 'count': len(active_vms), 'migrated_inactive': migrated_inactive, 'migrated_active': migrated_active,
                                     'do_not_migrate': do_not_migrate_vms, 'unlinked': unlinked_vms, 'to_be_migrated': to_be_migrated})
             return result_zones
-        
-        result_zones = get_result_zones(get_zones(servers), do_not_migrate_projects, projects_with_no_migrate_meta, dest_servers_with_migration_meta)
+
+        result_zones = get_result_zones(get_zones(
+            servers), do_not_migrate_projects, projects_with_no_migrate_meta, dest_servers_with_migration_meta)
 
         if json_output:
             return {env: result_zones}
@@ -566,7 +572,8 @@ class SubnetCollector(Collector):
             p.id for p in projects if 'migrate_to' not in p.meta]
 
         # Filtering the subnets to get only the once that are not floating
-        needed_subnets = [s for s in subnets if 'floating' not in s.name and 'lbaas' not in s.name]
+        needed_subnets = [
+            s for s in subnets if 'floating' not in s.name and 'lbaas' not in s.name]
 
         # Servers mapping:
         def get_dest_servers_with_migration_meta(env):
@@ -603,20 +610,19 @@ class SubnetCollector(Collector):
             subnet_id = sub.id
             network_id = sub.network_id
             network_name = get_network_name(network_id, networks)
-        
+
             if should_skip_subnet(network_name, env):
                 return
             else:
                 if cidr not in result_subnets:
-                    result_subnets[cidr] = create_subnet_dict(subnet_name, subnet_id, network_name)
-        
+                    result_subnets[cidr] = create_subnet_dict(
+                        subnet_name, subnet_id, network_name)
+
                 add_servers_to_subnet(servers, cidr, result_subnets)
-        
-        
+
         def should_skip_subnet(network_name, env):
             return 'gen' not in network_name and env == 'sin_private' and 'prd' in network_name
-        
-        
+
         def create_subnet_dict(subnet_name, subnet_id, network_name):
             return {
                 'name': subnet_name,
@@ -626,24 +632,24 @@ class SubnetCollector(Collector):
                 'hvs': [],
                 'zones': []
             }
-        
-        
+
         def add_servers_to_subnet(servers, cidr, result_subnets):
             for server in servers:
                 if bool(server.addresses) == True:
                     network_key = list(server.addresses)[0]
                     ip = server.addresses[network_key][0]['addr']
-        
+
                     if ipaddress.ip_address(ip) in ipaddress.ip_network(cidr):
                         result_subnets[cidr]['vms'].append(server)
-        
+
                         server_hypervisor = server.hypervisor_hostname
-        
+
                         if server_hypervisor not in result_subnets[cidr]['hvs']:
-                            result_subnets[cidr]['hvs'].append(server_hypervisor)
-        
+                            result_subnets[cidr]['hvs'].append(
+                                server_hypervisor)
+
                         zone = server['OS-EXT-AZ:availability_zone']
-        
+
                         if zone not in result_subnets[cidr]['zones']:
                             result_subnets[cidr]['zones'].append(zone)
 
@@ -660,16 +666,15 @@ class SubnetCollector(Collector):
             needed_subnets, networks, servers, env)
         subnets_data = []
 
-        def subnet_total_usage(subnet):
+        def subnet_total_usage(subnet, active_vms, do_not_migrate_vms, unlinked_vms):
             if "Total usage" not in headers:
                 headers.append('Total usage')
             # Collecting current subnet hypervisors
             subnet_hvs = result_subnets[subnet]['hvs']
             # Collecting current subnet servers
-            subnet_vms = [vm for vm in result_subnets[subnet]
-                          ['vms'] if vm.status == 'ACTIVE']
+            to_be_migrated_vms = [vm for vm in active_vms if vm not in do_not_migrate_vms and vm not in unlinked_vms]
             # Filtering current subnet servers to select only IDs
-            subnet_vms_ids = [vm.id for vm in subnet_vms]
+            subnet_vms_ids = [vm.id for vm in to_be_migrated_vms]
             # Getting each VM disk usage on the subnet hypervisors
             total_subnet_disk_usage = 0
             if len(subnet_hvs) != 0:
@@ -690,12 +695,18 @@ class SubnetCollector(Collector):
             subnet_obj = {}
 
             # Collecting all active VMs on the subnet
-            active_vms = [vm for vm in result_subnets[subnet]['vms'] if vm.status == 'ACTIVE']
-            migrated_vms = [vm for vm in result_subnets[subnet]['vms'] if "migration_dst" in vm.metadata.keys() and any(s.id == vm.metadata['migration_dst'] for s in dest_servers)]
-            migrated_active = len([vm for vm in migrated_vms if vm.status == 'ACTIVE'])
-            migrated_inactive = len([vm for vm in migrated_vms if vm.status != 'ACTIVE'])
-            do_not_migrate_vms = [vm for vm in active_vms if vm.project_id in do_not_migrate_projects]
-            unlinked_vms = [vm for vm in active_vms if vm.project_id in projects_with_no_migrate_meta]
+            active_vms = [vm for vm in result_subnets[subnet]
+                          ['vms'] if vm.status == 'ACTIVE']
+            migrated_vms = [vm for vm in result_subnets[subnet]['vms'] if "migration_dst" in vm.metadata.keys(
+            ) and any(s.id == vm.metadata['migration_dst'] for s in dest_servers)]
+            migrated_active = len(
+                [vm for vm in migrated_vms if vm.status == 'ACTIVE'])
+            migrated_inactive = len(
+                [vm for vm in migrated_vms if vm.status != 'ACTIVE'])
+            do_not_migrate_vms = [
+                vm for vm in active_vms if vm.project_id in do_not_migrate_projects]
+            unlinked_vms = [
+                vm for vm in active_vms if vm.project_id in projects_with_no_migrate_meta]
             subnet_obj = {
                 'subnet': subnet,
                 'name': result_subnets[subnet]['name'],
@@ -713,7 +724,8 @@ class SubnetCollector(Collector):
             }
 
             if usage:
-                subnet_obj['total_usage'] = subnet_total_usage(subnet)
+                subnet_obj['total_usage'] = subnet_total_usage(subnet, active_vms,
+                                                               do_not_migrate_vms, unlinked_vms)
 
             subnets_data.append(subnet_obj)
 
@@ -1016,7 +1028,8 @@ class ProjectValidator(Collector):
             table.print_table()
 
     def _list_all_projects(self, cli):
-        return cli.list_projects()
+        projects = cli.identity.projects()
+        return projects
 
     def _get_destination_cloud_data(self, env):
         cloud_map = {
@@ -1057,6 +1070,34 @@ class VMsWithMultipleFipsCollector(Collector):
         servers = cli.list_servers(
             all_projects=True, bare=True, filters={'limit': 1000})
 
+        def generate_do_not_migrate_project_ids(cli):
+            # Set the pagination size to 50 projects per page
+            # Adjust this value as needed
+            pagination_size = 50
+
+            # Use the `limit` and `marker` parameters to paginate the results
+            marker = None
+            projects = []
+
+            while True:
+                page = cli.identity.projects(
+                    limit=pagination_size, marker=marker)
+
+                if not page:
+                    break
+
+                projects.extend(page)
+                marker = page[-1].id
+
+            do_not_migrate_projects = [
+                p for p in projects
+                if p.get('meta', {}).get('migrate_to') == 'do_not_migrate'
+            ]
+            do_not_migrate_project_ids = [
+                p.id for p in do_not_migrate_projects]
+
+            return do_not_migrate_project_ids
+
         ports = cli.list_ports()
         floating_ips = cli.list_floating_ips()
 
@@ -1074,7 +1115,12 @@ class VMsWithMultipleFipsCollector(Collector):
                     fips.append(fip.floating_ip_address)
             return fips
 
-        for server in servers:
+        do_not_migrate_project_ids = generate_do_not_migrate_project_ids(cli)
+
+        needed_servers = [
+            s for s in servers if s.project_id not in do_not_migrate_project_ids]
+
+        for server in needed_servers:
             server_fips = get_floating_ips(server)
 
             if len(server_fips) > 1:
@@ -1084,9 +1130,12 @@ class VMsWithMultipleFipsCollector(Collector):
         if json_output:
             return {env: server_data}
         else:
-            values = [x.values() for x in server_data]
-            table = Table(headers, values)
-            table.print_table()
+            if len(server_data) > 0:
+                values = [x.values() for x in server_data]
+                table = Table(headers, values)
+                table.print_table()
+            else:
+                print("There are no VMs with multiple FIPs in this cloud")
 
 
 class OwningGroupCollector(Collector):
