@@ -558,7 +558,13 @@ class SubnetCollector(Collector):
         networks = cli.list_networks()
 
         # Getting a list of all projects
-        projects = cli.list_projects()
+        try:
+            projects = cli.list_projects()
+        except JSONDecodeError:
+            # This likes to error randomly in phx_private
+            print(f"Error listing projects from cloud {env} - trying one more time.")
+            sleep(10)
+            projects = cli.list_projects()
 
         # Filtering projects that have "do_not_migrate" tag
         do_not_migrate_projects = [p.id for p in projects if p.meta.get(
@@ -617,7 +623,10 @@ class SubnetCollector(Collector):
                 add_servers_to_subnet(servers, cidr, result_subnets)
 
         def should_skip_subnet(network_name, env):
-            return 'gen' not in network_name and env == 'sin_private' and 'prd' in network_name
+            return ('gen' in network_name) or (env == 'sin_private' and 'prd' in network_name)
+
+        # def should_skip_subnet(network_name, env):
+        #     return ('gen' in network_name and env == 'sin_private') or 'prd' in network_name
 
         def create_subnet_dict(subnet_name, subnet_id, network_name):
             return {
