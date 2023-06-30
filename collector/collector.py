@@ -21,7 +21,6 @@ from usage import high_risk_hv, vm_disk_usage
 config = openstack.config.loader.OpenStackConfig()
 
 clouds = [
-    'ams_private',
     'iad_private',
     'phx_private',
     'sin_private'
@@ -316,7 +315,6 @@ class ZoneCollector(Collector):
 
         # Servers mapping:
         server_map = {
-            'ams_private': 'ams_osng',
             'iad_private': 'iad_osng',
             'phx_private': 'phx_osng',
             'sin_private': 'sin_osng'
@@ -448,7 +446,6 @@ class CombinedZoneCollector(Collector):
 
         # Servers mapping:
         server_map = {
-            'ams_private': 'ams_osng',
             'iad_private': 'iad_osng',
             'phx_private': 'phx_osng',
             'sin_private': 'sin_osng'
@@ -578,7 +575,6 @@ class SubnetCollector(Collector):
         # Servers mapping:
         def get_dest_servers_with_migration_meta(env):
             server_map = {
-                'ams_private': 'ams_osng',
                 'iad_private': 'iad_osng',
                 'phx_private': 'phx_osng',
                 'sin_private': 'sin_osng'
@@ -1033,7 +1029,6 @@ class ProjectValidator(Collector):
 
     def _get_destination_cloud_data(self, env):
         cloud_map = {
-            'ams_private': 'ams_osng',
             'iad_private': 'iad_osng',
             'phx_private': 'phx_osng',
             'sin_private': 'sin_osng',
@@ -1319,7 +1314,6 @@ class SubnetCsvCollector(Collector):
 
         def get_dst_projects(env):
             cloud_map = {
-                'ams_private': 'ams_osng',
                 'iad_private': 'iad_osng',
                 'phx_private': 'phx_osng',
                 'sin_private': 'sin_osng',
