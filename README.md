@@ -1,6 +1,6 @@
 # Openstack Collector
 
-Tool that gathers data regarding openstack hypervisors and instances. Uses the Ansible Python Api to collect real disk usage data for each VM
+A tool that gathers data regarding openstack hypervisors and instances. Uses the Ansible Python Api to collect real disk usage data for each VM
 
 ## Help menu 
 
