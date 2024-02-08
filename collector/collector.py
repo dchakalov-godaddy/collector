@@ -66,6 +66,7 @@ class HypervisorCollector(Collector):
     def get_hypervisors_data(cli):
         hypervisors = cli.list_hypervisors()
         hypervisors_data = []
+        return print(hypervisors[0])
         for hypervisor in hypervisors:
             hypervisors_data.append(
                 [hypervisor.name, hypervisor.state, hypervisor.host_ip,
@@ -124,6 +125,99 @@ class HypervisorCollector(Collector):
             self.print_general_info(env, hypervisors_data)
             table = self.format_hypervisors_data(hypervisors_data)
             table.print_table()
+
+
+class EmptyHypervisorCollector(Collector):
+    def get_resources(self, env, json_output):
+        cli = self._get_client(env)
+        hypervisors = cli.list_hypervisors()
+        empty_hypervisors = []
+        for hypervisor in hypervisors:
+            if hypervisor.running_vms == 0:
+                empty_hypervisors.append(hypervisor.name)
+
+        if len(empty_hypervisors) > 0:
+            if json_output:
+                return {env: empty_hypervisors}
+            else:
+                print(f"Number of empty HVs on {env}: {len(empty_hypervisors)}")
+                print('------------------------------------')
+                for hv in empty_hypervisors:
+                    print(hv)
+                print('------------------------------------')
+        else:
+            print(f"No empty HVs on {env}")
+
+
+class MigratedOHVMSCollector(Collector):
+    def get_resources(self, env):
+        cli = self._get_client(env)
+        servers = cli.list_servers(
+            all_projects=True, bare=True, filters={'limit': 1000})
+        hypervisors = cli.list_hypervisors()
+
+        total_migrated_vms = [
+            vm for vm in servers if "oh_migration_state" in vm.metadata]
+
+        vms_count = {hypervisor.name: 0 for hypervisor in hypervisors}
+        for server in servers:
+            hypervisor_name = getattr(server, 'hypervisor_hostname', None)
+            if hypervisor_name:
+                vms_count[server.hypervisor_hostname] += 1
+
+        empty_hvs = []
+        fully_migrated_hvs = []
+        for hypervisor in hypervisors:
+            total_vms = vms_count.get(hypervisor.name, 0)
+            migrated_vms = [vm for vm in servers if vm.hypervisor_hostname == hypervisor.name and "oh_migration_state" in vm.metadata]
+
+            if total_vms == 0:
+                empty_hvs.append(hypervisor.name)
+            if total_vms != 0 and total_vms == len(migrated_vms):
+                fully_migrated_hvs.append(hypervisor.name)
+
+        print('------------------------------------')
+        print(f"Number of migrated VMs: {len(total_migrated_vms)}")
+        print(f"Number of empty HVs: {len(empty_hvs)}")
+        print(f"Number of fully migrated HVs: {len(fully_migrated_hvs)}")
+        print('------------------------------------')
+        if len(empty_hvs) > 0:
+            print('Empty HVs:')
+            for hv in empty_hvs:
+                print(hv)
+            print('------------------------------------')
+        if len(fully_migrated_hvs) > 0:
+            print('Fully migrated HVs:')
+            for hv in fully_migrated_hvs:
+                print(hv)
+            print('------------------------------------')
+
+        # for vm in migrated_vms:
+        #     for hv in hypervisors:
+        #         if vm.hypervisor_hostname == hv.name:
+  
+        # for hv in hypervisors:
+        #     migrated_vms = []
+        #     for vm in vms:
+        #         if vm.hypervisor_hostname == hv.name:
+        #             if "oh_migration_state" in vm.metadata:
+        #                 migrated_vms.append(vm)
+
+        #     if len(migrated_vms) == hv.running_vms:
+        #         fully_migrated_hvs.append(hv.name)
+
+        # print(f"Number of migrated VMs: {len(migrated_vms)}")
+        # if len(fully_migrated_hvs) > 0:
+        #     if json_output:
+        #         return {env: fully_migrated_hvs}
+        #     else:
+        #         print(f"Number of fully migrated HVs on {env}: {len(fully_migrated_hvs)}")
+        #         print('------------------------------------')
+        #         for hv in fully_migrated_hvs:
+        #             print(hv)
+        #         print('------------------------------------')
+        # else:
+        #     print(f"No fully migrated HVs on {env}")
 
 
 class ServerCollector(Collector):
@@ -1437,8 +1531,10 @@ def main():
 
     parser.add_argument('collector', choices=['servers', 'hypervisors', 'risky',
                                               'subnets', 'vmpersub', 'vmperhv', 'projects',
-                                              'empty_projects', 'multifips', 'group',
-                                              'project_validate', 'zones', 'unlinked', 'combined_zones', 'csvsubnet', 'all'],
+                                              'empty_projects', 'empty_hvs', 'multifips', 'group',
+                                              'project_validate', 'zones', 'unlinked',
+                                              'combined_zones', 'csvsubnet',
+                                              'migrated_oh', 'all'],
                         help='Collect data about instances, hypervisors or subnets',
                         default='all'
                         )
@@ -1508,22 +1604,42 @@ def main():
 
     # Defying dictionary with the possible collectors and their filters
     collectors = {
-        'servers': {'type': ServerCollector(), 'filters': [
+        'servers': {'type': ServerCollector(),
+                    'filters': [
             args.env, args.sorter or 'usage', args.hours or 24, args.bigger or 0]},
-        'hypervisors': {'type': HypervisorCollector(), 'filters': [args.env, args.json_output]},
-        'risky': {'type': HighRiskCollector(), 'filters': [args.env, args.json_output]},
-        'subnets': {'type': SubnetCollector(), 'filters': [args.env, args.usage, args.json_output]},
-        'vmpersub': {'type': VMsPerSubnetCollector(), 'filters': [args.env, args.json_output]},
-        'vmperhv': {'type': VMsPerHypervisorCollector(), 'filters': [args.env, args.json_output]},
-        'projects': {'type': ProjectCollector(), 'filters': [args.env, args.json_output]},
-        'empty_projects': {'type': EmptyProjectCollector(), 'filters': [args.env, args.json_output]},
-        'project_validate': {'type': ProjectValidator(), 'filters': [args.env, args.json_output]},
-        'multifips': {'type': VMsWithMultipleFipsCollector(), 'filters': [args.env, args.json_output]},
-        'group': {'type': OwningGroupCollector(), 'filters': [args.env, args.group]},
-        'zones': {'type': ZoneCollector(), 'filters': [args.env, args.json_output]},
-        'unlinked': {'type': UnlinkedCollector(), 'filters': [args.env, args.zone]},
-        'combined_zones': {'type': CombinedZoneCollector(), 'filters': [args.env, args.json_output]},
-        'csvsubnet': {'type': SubnetCsvCollector(), 'filters': [args.env, args.subnet, args.zone, args.stdout]},
+        'hypervisors': {'type': HypervisorCollector(),
+                        'filters': [args.env, args.json_output]},
+        'risky': {'type': HighRiskCollector(),
+                  'filters': [args.env, args.json_output]},
+        'subnets': {'type': SubnetCollector(),
+                    'filters': [args.env, args.usage, args.json_output]},
+        'vmpersub': {'type': VMsPerSubnetCollector(),
+                     'filters': [args.env, args.json_output]},
+        'vmperhv': {'type': VMsPerHypervisorCollector(),
+                    'filters': [args.env, args.json_output]},
+        'projects': {'type': ProjectCollector(),
+                     'filters': [args.env, args.json_output]},
+        'empty_projects': {'type': EmptyProjectCollector(),
+                           'filters': [args.env, args.json_output]},
+        'empty_hvs': {'type': EmptyHypervisorCollector(),
+                      'filters': [args.env, args.json_output]},
+        'project_validate': {'type': ProjectValidator(),
+                             'filters': [args.env, args.json_output]},
+        'multifips': {'type': VMsWithMultipleFipsCollector(),
+                      'filters': [args.env, args.json_output]},
+        'migrated_oh': {'type': MigratedOHVMSCollector(),
+                        'filters': [args.env]},
+        'group': {'type': OwningGroupCollector(),
+                  'filters': [args.env, args.group]},
+        'zones': {'type': ZoneCollector(),
+                  'filters': [args.env, args.json_output]},
+        'unlinked': {'type': UnlinkedCollector(),
+                     'filters': [args.env, args.zone]},
+        'combined_zones': {'type': CombinedZoneCollector(),
+                           'filters': [args.env, args.json_output]},
+        'csvsubnet': {'type': SubnetCsvCollector(),
+                      'filters': [args.env, args.subnet,
+                                  args.zone, args.stdout]},
         'all': {'type': AllCollector(), 'filters': [args.which, args.usage]}
     }
 
